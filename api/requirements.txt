@@ -1,0 +1,31 @@
+# Agentic AI Tutor - Python Backend Dependencies
+# Optimized for Vercel's 250MB bundle limit
+
+fastapi>=0.109.0
+uvicorn>=0.27.0
+python-multipart>=0.0.6
+
+# LangGraph and LangChain (minimal)
+langgraph>=0.0.50
+langchain-core>=0.1.20
+langchain-google-genai>=0.0.10
+
+# Supabase
+supabase>=2.3.0
+
+# Voice (TTS)
+edge-tts>=6.1.9
+
+# PDF Processing (lightweight)
+pypdf>=3.17.0
+
+# Memory System Dependencies
+pytz>=2024.1
+
+# Web Search
+duckduckgo-search>=4.1.0
+
+# Utilities
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+httpx>=0.26.0
