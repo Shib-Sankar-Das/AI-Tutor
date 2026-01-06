@@ -105,10 +105,13 @@ class FeedbackRequest(BaseModel):
 # Health check endpoint
 @app.get("/api/health")
 async def health_check():
+    google_api_key = os.getenv("GOOGLE_API_KEY")
     return {
         "status": "healthy",
         "service": "agentic-ai-tutor",
-        "memory_system": MEMORY_AVAILABLE
+        "memory_system": MEMORY_AVAILABLE,
+        "google_api_configured": bool(google_api_key),
+        "google_api_key_prefix": google_api_key[:10] + "..." if google_api_key else None
     }
 
 
@@ -121,6 +124,10 @@ async def chat(request: ChatRequest):
     Enhanced with memory system integration.
     """
     try:
+        # Check API key first
+        if not os.getenv("GOOGLE_API_KEY"):
+            raise HTTPException(status_code=500, detail="GOOGLE_API_KEY not configured")
+        
         # Create the agentic graph
         graph = create_tutor_graph()
         

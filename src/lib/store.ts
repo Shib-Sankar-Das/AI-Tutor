@@ -78,6 +78,10 @@ export interface MemoryContext {
 }
 
 interface AppState {
+  // Hydration state
+  _hasHydrated: boolean;
+  setHasHydrated: (state: boolean) => void;
+
   // User
   user: UserProfile | null;
   setUser: (user: UserProfile | null) => void;
@@ -134,6 +138,10 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
+      // Hydration state
+      _hasHydrated: false,
+      setHasHydrated: (state) => set({ _hasHydrated: state }),
+
       // User
       user: null,
       setUser: (user) => set({ user }),
@@ -142,7 +150,13 @@ export const useAppStore = create<AppState>()(
       sessions: [],
       currentSessionId: null,
       addSession: (session) =>
-        set((state) => ({ sessions: [session, ...state.sessions] })),
+        set((state) => {
+          // Prevent duplicate sessions
+          if (state.sessions.some(s => s.id === session.id)) {
+            return state;
+          }
+          return { sessions: [session, ...state.sessions] };
+        }),
       updateSession: (id, updates) =>
         set((state) => ({
           sessions: state.sessions.map((s) =>
@@ -241,6 +255,9 @@ export const useAppStore = create<AppState>()(
         user: state.user,
         memoryProfile: state.memoryProfile,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

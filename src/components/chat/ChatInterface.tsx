@@ -31,6 +31,7 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
     addSession,
     updateSession,
     user,
+    _hasHydrated,
   } = useAppStore();
 
   const sessionMessages = messages[sessionId] || [];
@@ -40,8 +41,10 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [sessionMessages]);
 
-  // Initialize session if new (only once)
+  // Initialize session if new (only after hydration to avoid duplicates)
   useEffect(() => {
+    if (!_hasHydrated) return; // Wait for hydration
+    
     const existingSession = sessions.find((s) => s.id === sessionId);
     if (!existingSession) {
       addSession({
@@ -52,8 +55,7 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
         updatedAt: new Date(),
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [sessionId, _hasHydrated, sessions, addSession]);
 
   // Consolidate memories when leaving session
   useEffect(() => {
