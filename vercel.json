@@ -35,7 +35,7 @@
     },
     {
       "source": "/api/health",
-      "destination": "/api/index.py"
+      "destination": "/api/minimal.py"
     }
   ],
   "functions": {
@@ -44,6 +44,10 @@
       "memory": 1024
     },
     "api/test.py": {
+      "maxDuration": 10,
+      "memory": 256
+    },
+    "api/minimal.py": {
       "maxDuration": 10,
       "memory": 256
     }
