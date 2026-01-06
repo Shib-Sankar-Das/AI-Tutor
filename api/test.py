@@ -92,3 +92,48 @@ async def test_imports():
         "imports": results
     }
 
+@app.get("/api/test/modules")
+async def test_modules():
+    """Test our custom module imports"""
+    results = {}
+    
+    # Test services.tts
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from services.tts import generate_speech
+        results["services.tts"] = "ok"
+    except Exception as e:
+        results["services.tts"] = str(e)
+    
+    # Test services.document
+    try:
+        from services.document import process_document
+        results["services.document"] = "ok"
+    except Exception as e:
+        results["services.document"] = str(e)
+    
+    # Test services.search
+    try:
+        from services.search import web_search
+        results["services.search"] = "ok"
+    except Exception as e:
+        results["services.search"] = str(e)
+    
+    # Test services.memory
+    try:
+        from services.memory import MemoryManager
+        results["services.memory"] = "ok"
+    except Exception as e:
+        results["services.memory"] = str(e)
+    
+    # Test agents.supervisor
+    try:
+        from agents.supervisor import create_tutor_graph
+        results["agents.supervisor"] = "ok"
+    except Exception as e:
+        results["agents.supervisor"] = str(e)
+    
+    return {
+        "module_imports": results
+    }
+
