@@ -13,41 +13,51 @@ import os
 import json
 import asyncio
 import sys
+import traceback
 
 # Add parent directory to path for local development
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Track import status
+IMPORT_ERRORS = []
+MODULES_LOADED = False
+
 # Import our modules - try relative imports first (Vercel), then absolute (local)
 try:
-    from .agents.supervisor import (
-        create_tutor_graph,
-        AgentState,
-        load_memory_context,
-        save_interaction_memory,
-    )
-    from .services.tts import generate_speech
-    from .services.document import process_document
-    from .services.search import web_search
-except ImportError:
-    from agents.supervisor import (
-        create_tutor_graph,
-        AgentState,
-        load_memory_context,
-        save_interaction_memory,
-    )
-    from services.tts import generate_speech
-    from services.document import process_document
-    from services.search import web_search
+    try:
+        from .agents.supervisor import (
+            create_tutor_graph,
+            AgentState,
+            load_memory_context,
+            save_interaction_memory,
+        )
+        from .services.tts import generate_speech
+        from .services.document import process_document
+        from .services.search import web_search
+    except ImportError:
+        from agents.supervisor import (
+            create_tutor_graph,
+            AgentState,
+            load_memory_context,
+            save_interaction_memory,
+        )
+        from services.tts import generate_speech
+        from services.document import process_document
+        from services.search import web_search
+    MODULES_LOADED = True
+except Exception as e:
+    IMPORT_ERRORS.append(f"Main modules: {str(e)}\n{traceback.format_exc()}")
 
 # Try to import memory services
+MEMORY_AVAILABLE = False
 try:
     try:
         from .services.memory import MemoryManager, MemoryType, ImportanceLevel
     except ImportError:
         from services.memory import MemoryManager, MemoryType, ImportanceLevel
     MEMORY_AVAILABLE = True
-except ImportError:
-    MEMORY_AVAILABLE = False
+except Exception as e:
+    IMPORT_ERRORS.append(f"Memory modules: {str(e)}")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -107,11 +117,14 @@ class FeedbackRequest(BaseModel):
 async def health_check():
     google_api_key = os.getenv("GOOGLE_API_KEY")
     return {
-        "status": "healthy",
+        "status": "healthy" if MODULES_LOADED else "degraded",
         "service": "agentic-ai-tutor",
+        "modules_loaded": MODULES_LOADED,
         "memory_system": MEMORY_AVAILABLE,
         "google_api_configured": bool(google_api_key),
-        "google_api_key_prefix": google_api_key[:10] + "..." if google_api_key else None
+        "google_api_key_prefix": google_api_key[:10] + "..." if google_api_key else None,
+        "import_errors": IMPORT_ERRORS if IMPORT_ERRORS else None,
+        "python_version": sys.version,
     }
 
 
