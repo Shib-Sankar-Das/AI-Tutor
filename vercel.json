@@ -1,49 +1,31 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/index.py",
-      "use": "@vercel/python",
-      "config": { "maxLambdaSize": "50mb" }
+      "source": "/api/chat",
+      "destination": "/api/index.py"
     },
     {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/chat",
-      "dest": "/api/index.py"
+      "source": "/api/tts",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/api/tts",
-      "dest": "/api/index.py"
+      "source": "/api/ingest",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/api/ingest",
-      "dest": "/api/index.py"
+      "source": "/api/memory/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/api/memory/(.*)",
-      "dest": "/api/index.py"
-    },
-    {
-      "src": "/api/health",
-      "dest": "/api/index.py"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/index.py"
+      "source": "/api/health",
+      "destination": "/api/index.py"
     }
   ],
   "functions": {
-    "api/**/*.py": {
+    "api/index.py": {
       "maxDuration": 60,
       "memory": 1024
     }
-  },
-  "env": {
-    "PYTHONUNBUFFERED": "1"
   }
 }
