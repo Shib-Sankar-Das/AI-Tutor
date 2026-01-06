@@ -165,7 +165,7 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
   }, [slides]);
 
   const exportToGoogleSlides = useCallback(async () => {
-    const token = getGoogleAccessToken();
+    const token = await getGoogleAccessToken();
     if (!token) {
       showToast('Please sign in with Google to export to Slides', 'error');
       return;
@@ -177,7 +177,6 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
     try {
       // Create a new presentation
       const presentation = await GoogleSlides.createPresentation(
-        token,
         slides[0]?.title || 'AI Tutor Presentation'
       );
 
@@ -189,7 +188,7 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
       }));
 
       // Add slides to the presentation
-      await GoogleSlides.addSlides(token, presentation.presentationId, slideContents);
+      await GoogleSlides.addSlides(presentation.presentationId, slideContents);
 
       // Open the presentation in a new tab
       const url = GoogleSlides.getPresentationUrl(presentation.presentationId);

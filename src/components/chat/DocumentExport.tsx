@@ -54,7 +54,7 @@ export function DocumentExport({ title, content, onClose }: DocumentExportProps)
   };
 
   const exportToGoogleDocs = useCallback(async () => {
-    const token = getGoogleAccessToken();
+    const token = await getGoogleAccessToken();
     if (!token) {
       showToast('Please sign in with Google to export to Docs', 'error');
       return;
@@ -65,10 +65,10 @@ export function DocumentExport({ title, content, onClose }: DocumentExportProps)
 
     try {
       // Create a new document
-      const doc = await GoogleDocs.createDocument(token, title);
+      const doc = await GoogleDocs.createDocument(title);
 
       // Insert content into the document
-      await GoogleDocs.insertContent(token, doc.documentId, content);
+      await GoogleDocs.insertContent(doc.documentId, content);
 
       // Open the document in a new tab
       const url = GoogleDocs.getDocumentUrl(doc.documentId);

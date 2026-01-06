@@ -5,6 +5,25 @@
 
 import { supabase } from './supabase';
 
+// Google Calendar Event interface
+export interface CalendarEvent {
+  id: string;
+  summary: string;
+  description?: string;
+  start: {
+    dateTime?: string;
+    date?: string;
+    timeZone?: string;
+  };
+  end: {
+    dateTime?: string;
+    date?: string;
+    timeZone?: string;
+  };
+  htmlLink?: string;
+  status?: string;
+}
+
 // Google API Scopes
 export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/calendar',

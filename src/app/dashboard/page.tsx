@@ -61,11 +61,14 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const token = getGoogleAccessToken();
-    setHasGoogleAccess(!!token);
-    if (token) {
-      syncCalendarEvents();
-    }
+    const checkGoogleAccess = async () => {
+      const token = await getGoogleAccessToken();
+      setHasGoogleAccess(!!token);
+      if (token) {
+        syncCalendarEvents();
+      }
+    };
+    checkGoogleAccess();
   }, [currentDate]);
 
   const checkUser = async () => {
@@ -91,7 +94,7 @@ export default function DashboardPage() {
   };
 
   const syncCalendarEvents = async () => {
-    const token = getGoogleAccessToken();
+    const token = await getGoogleAccessToken();
     if (!token) return;
 
     setIsSyncingCalendar(true);
@@ -99,13 +102,12 @@ export default function DashboardPage() {
       const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
       
-      const events = await GoogleCalendar.getEvents(
-        token,
+      const response = await GoogleCalendar.getEvents(
         'primary',
-        startOfMonth.toISOString(),
-        endOfMonth.toISOString()
+        startOfMonth,
+        endOfMonth
       );
-      setCalendarEvents(events);
+      setCalendarEvents(response.items || []);
     } catch (error: any) {
       console.error('Failed to sync calendar:', error);
       if (error.message?.includes('401')) {
@@ -133,18 +135,19 @@ export default function DashboardPage() {
 
     // Create calendar event if due date is set and Google is connected
     if (newGoal.dueDate && hasGoogleAccess) {
-      const token = getGoogleAccessToken();
+      const token = await getGoogleAccessToken();
       if (token) {
         try {
-          const event = await GoogleCalendar.createEvent(token, 'primary', {
+          // Create dates for the goal
+          const dueDate = new Date(newGoal.dueDate);
+          const endDate = new Date(newGoal.dueDate);
+          endDate.setHours(23, 59, 59);
+          
+          const event = await GoogleCalendar.createEvent({
             summary: `📚 Goal: ${newGoal.title}`,
             description: newGoal.description || 'Learning goal from AI Tutor',
-            start: {
-              date: newGoal.dueDate,
-            },
-            end: {
-              date: newGoal.dueDate,
-            },
+            start: dueDate,
+            end: endDate,
           });
           goal.calendarEventId = event.id;
           showToast('Goal added to Google Calendar!', 'success');
@@ -171,10 +174,10 @@ export default function DashboardPage() {
   const deleteGoal = async (goal: Goal) => {
     // Delete from Google Calendar if linked
     if (goal.calendarEventId && hasGoogleAccess) {
-      const token = getGoogleAccessToken();
+      const token = await getGoogleAccessToken();
       if (token) {
         try {
-          await GoogleCalendar.deleteEvent(token, 'primary', goal.calendarEventId);
+          await GoogleCalendar.deleteEvent(goal.calendarEventId);
           syncCalendarEvents();
         } catch (error) {
           console.error('Failed to delete calendar event:', error);
@@ -535,7 +538,9 @@ export default function DashboardPage() {
                             <Clock className="w-3 h-3" />
                             {new Date(goal.dueDate).toLocaleDateString()}
                             {goal.calendarEventId && (
-                              <CalendarIcon className="w-3 h-3 text-blue-500 ml-1" title="Synced with Google Calendar" />
+                              <span title="Synced with Google Calendar">
+                                <CalendarIcon className="w-3 h-3 text-blue-500 ml-1" />
+                              </span>
                             )}
                           </p>
                         )}

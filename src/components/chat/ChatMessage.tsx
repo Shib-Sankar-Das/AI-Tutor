@@ -99,7 +99,7 @@ export function ChatMessage({ message, onOpenWorkspace, sessionId }: ChatMessage
   const handleAddToCalendar = async () => {
     if (!hasCalendarEvent) return;
 
-    const token = getGoogleAccessToken();
+    const token = await getGoogleAccessToken();
     if (!token) {
       showToast('Please sign in with Google to add calendar events', 'error');
       return;
@@ -107,11 +107,15 @@ export function ChatMessage({ message, onOpenWorkspace, sessionId }: ChatMessage
 
     try {
       const event = message.metadata!.calendarEvent!;
-      await GoogleCalendar.createEvent(token, 'primary', {
+      const eventDate = new Date(event.date);
+      const endDate = new Date(event.date);
+      endDate.setHours(23, 59, 59);
+      
+      await GoogleCalendar.createEvent({
         summary: event.title,
         description: event.description,
-        start: { date: event.date },
-        end: { date: event.date },
+        start: eventDate,
+        end: endDate,
       });
       showToast('Event added to Google Calendar!', 'success');
     } catch (error: any) {
