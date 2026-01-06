@@ -13,7 +13,6 @@ import os
 import json
 import asyncio
 import sys
-import traceback
 
 # Add parent directory to path for local development
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -22,39 +21,46 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 IMPORT_ERRORS = []
 MODULES_LOADED = False
 
-# Import our modules - try relative imports first (Vercel), then absolute (local)
+# Import our modules with better error handling
+create_tutor_graph = None
+AgentState = None
+load_memory_context = None
+save_interaction_memory = None
+generate_speech = None
+process_document = None
+web_search = None
+MemoryManager = None
+MEMORY_AVAILABLE = False
+
 try:
-    try:
-        from .agents.supervisor import (
-            create_tutor_graph,
-            AgentState,
-            load_memory_context,
-            save_interaction_memory,
-        )
-        from .services.tts import generate_speech
-        from .services.document import process_document
-        from .services.search import web_search
-    except ImportError:
-        from agents.supervisor import (
-            create_tutor_graph,
-            AgentState,
-            load_memory_context,
-            save_interaction_memory,
-        )
-        from services.tts import generate_speech
-        from services.document import process_document
-        from services.search import web_search
+    from agents.supervisor import (
+        create_tutor_graph as _ctg,
+        AgentState as _AS,
+        load_memory_context as _lmc,
+        save_interaction_memory as _sim,
+    )
+    create_tutor_graph = _ctg
+    AgentState = _AS
+    load_memory_context = _lmc
+    save_interaction_memory = _sim
+    
+    from services.tts import generate_speech as _gs
+    generate_speech = _gs
+    
+    from services.document import process_document as _pd
+    process_document = _pd
+    
+    from services.search import web_search as _ws
+    web_search = _ws
+    
     MODULES_LOADED = True
 except Exception as e:
-    IMPORT_ERRORS.append(f"Main modules: {str(e)}\n{traceback.format_exc()}")
+    IMPORT_ERRORS.append(f"Main modules: {str(e)}")
 
 # Try to import memory services
-MEMORY_AVAILABLE = False
 try:
-    try:
-        from .services.memory import MemoryManager, MemoryType, ImportanceLevel
-    except ImportError:
-        from services.memory import MemoryManager, MemoryType, ImportanceLevel
+    from services.memory import MemoryManager as _MM
+    MemoryManager = _MM
     MEMORY_AVAILABLE = True
 except Exception as e:
     IMPORT_ERRORS.append(f"Memory modules: {str(e)}")
