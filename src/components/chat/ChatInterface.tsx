@@ -40,9 +40,10 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [sessionMessages]);
 
-  // Initialize session if new
+  // Initialize session if new (only once)
   useEffect(() => {
-    if (!sessions.find((s) => s.id === sessionId)) {
+    const existingSession = sessions.find((s) => s.id === sessionId);
+    if (!existingSession) {
       addSession({
         id: sessionId,
         title: 'New Chat',
@@ -51,14 +52,15 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
         updatedAt: new Date(),
       });
     }
-  }, [sessionId, sessions, addSession]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // Consolidate memories when leaving session
   useEffect(() => {
     const consolidateOnLeave = async () => {
       if (user?.id && sessionMessages.length > 2) {
         try {
-          await fetch(`/api/memory/consolidate/${user.id}`, {
+          await fetch(`http://localhost:8000/memory/consolidate/${user.id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: sessionId }),
@@ -90,7 +92,7 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

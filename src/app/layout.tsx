@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from '@/components/ui/Toaster';
@@ -10,7 +10,11 @@ export const metadata: Metadata = {
   description: 'An intelligent AI tutor aligned with SDG 4 - Ensuring inclusive and equitable quality education for all learners.',
   keywords: ['AI Tutor', 'Education', 'SDG 4', 'Learning', 'Agentic AI'],
   authors: [{ name: 'CSRBOX Capstone Project' }],
-  viewport: 'width=device-width, initial-scale=1',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
   themeColor: '#3b82f6',
 };
 

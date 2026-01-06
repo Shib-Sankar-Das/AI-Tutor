@@ -33,8 +33,8 @@ export function MemoryProfile() {
     try {
       // Fetch profile and strategies in parallel
       const [profileRes, strategiesRes] = await Promise.all([
-        fetch(`/api/memory/profile/${user.id}`),
-        fetch(`/api/memory/strategies/${user.id}`),
+        fetch(`http://localhost:8000/memory/profile/${user.id}`),
+        fetch(`http://localhost:8000/memory/strategies/${user.id}`),
       ]);
       
       const profileData = await profileRes.json();

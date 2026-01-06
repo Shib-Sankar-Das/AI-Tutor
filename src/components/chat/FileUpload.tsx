@@ -31,7 +31,7 @@ export function FileUpload({ onClose }: FileUploadProps) {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/ingest', {
+      const response = await fetch('http://localhost:8000/ingest', {
         method: 'POST',
         body: formData,
       });

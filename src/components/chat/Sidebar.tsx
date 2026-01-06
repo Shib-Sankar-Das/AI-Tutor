@@ -104,7 +104,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={`fixed left-0 top-0 h-full bg-gray-900 text-white transition-all duration-300 z-40 ${
-          isOpen ? 'w-72' : 'w-0 overflow-hidden'
+          isOpen ? 'w-64' : 'w-0 overflow-hidden'
         }`}
       >
         <div className="flex flex-col h-full">
