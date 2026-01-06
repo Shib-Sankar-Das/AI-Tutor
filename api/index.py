@@ -1,7 +1,7 @@
 """
 Agentic AI Tutor - FastAPI Backend
 Main entry point for Vercel serverless deployment
-Enhanced with Agentic Memory System
+Uses lazy imports to avoid cold start issues
 """
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
@@ -11,73 +11,22 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os
 import json
-import asyncio
 import sys
 
-# Add parent directory to path for local development
+# Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# Track import status
-IMPORT_ERRORS = []
-MODULES_LOADED = False
-
-# Import our modules with better error handling
-create_tutor_graph = None
-AgentState = None
-load_memory_context = None
-save_interaction_memory = None
-generate_speech = None
-process_document = None
-web_search = None
-MemoryManager = None
-MEMORY_AVAILABLE = False
-
-try:
-    from agents.supervisor import (
-        create_tutor_graph as _ctg,
-        AgentState as _AS,
-        load_memory_context as _lmc,
-        save_interaction_memory as _sim,
-    )
-    create_tutor_graph = _ctg
-    AgentState = _AS
-    load_memory_context = _lmc
-    save_interaction_memory = _sim
-    
-    from services.tts import generate_speech as _gs
-    generate_speech = _gs
-    
-    from services.document import process_document as _pd
-    process_document = _pd
-    
-    from services.search import web_search as _ws
-    web_search = _ws
-    
-    MODULES_LOADED = True
-except Exception as e:
-    IMPORT_ERRORS.append(f"Main modules: {str(e)}")
-
-# Try to import memory services
-try:
-    from services.memory import MemoryManager as _MM
-    MemoryManager = _MM
-    MEMORY_AVAILABLE = True
-except Exception as e:
-    IMPORT_ERRORS.append(f"Memory modules: {str(e)}")
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Agentic AI Tutor API",
     description="Backend API for the Agentic AI Tutor - SDG 4 Quality Education",
     version="1.0.0",
-    docs_url="/api/docs",
-    openapi_url="/api/openapi.json"
 )
 
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -88,26 +37,9 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     thread_id: str
-    session_id: Optional[str] = None  # For memory tracking
+    session_id: Optional[str] = None
     language: str = "en"
     user_id: Optional[str] = None
-
-
-class ChatResponse(BaseModel):
-    response: str
-    metadata: Optional[Dict[str, Any]] = None
-
-
-class TTSRequest(BaseModel):
-    text: str
-    voice: str = "en-US-AriaNeural"
-    rate: str = "+0%"
-
-
-class MemoryRequest(BaseModel):
-    user_id: str
-    session_id: str
-    memory_type: Optional[str] = None
 
 
 class FeedbackRequest(BaseModel):
@@ -118,18 +50,74 @@ class FeedbackRequest(BaseModel):
     feedback_text: Optional[str] = None
 
 
+# Lazy import helper
+def get_tutor_modules():
+    """Lazy import tutor modules"""
+    from agents.supervisor import (
+        create_tutor_graph,
+        load_memory_context,
+        save_interaction_memory,
+    )
+    return create_tutor_graph, load_memory_context, save_interaction_memory
+
+
+def get_tts_module():
+    """Lazy import TTS module"""
+    from services.tts import generate_speech
+    return generate_speech
+
+
+def get_document_module():
+    """Lazy import document module"""
+    from services.document import process_document
+    return process_document
+
+
+def get_search_module():
+    """Lazy import search module"""
+    from services.search import web_search
+    return web_search
+
+
+def get_memory_module():
+    """Lazy import memory module"""
+    try:
+        from services.memory import MemoryManager
+        return MemoryManager
+    except ImportError:
+        return None
+
+
 # Health check endpoint
 @app.get("/api/health")
 async def health_check():
     google_api_key = os.getenv("GOOGLE_API_KEY")
+    
+    # Test imports
+    modules_status = {}
+    try:
+        get_tutor_modules()
+        modules_status["tutor"] = "ok"
+    except Exception as e:
+        modules_status["tutor"] = str(e)
+    
+    try:
+        get_tts_module()
+        modules_status["tts"] = "ok"
+    except Exception as e:
+        modules_status["tts"] = str(e)
+    
+    try:
+        get_memory_module()
+        modules_status["memory"] = "ok"
+    except Exception as e:
+        modules_status["memory"] = str(e)
+    
     return {
-        "status": "healthy" if MODULES_LOADED else "degraded",
+        "status": "healthy",
         "service": "agentic-ai-tutor",
-        "modules_loaded": MODULES_LOADED,
-        "memory_system": MEMORY_AVAILABLE,
         "google_api_configured": bool(google_api_key),
-        "google_api_key_prefix": google_api_key[:10] + "..." if google_api_key else None,
-        "import_errors": IMPORT_ERRORS if IMPORT_ERRORS else None,
+        "modules": modules_status,
         "python_version": sys.version,
     }
 
@@ -140,12 +128,14 @@ async def chat(request: ChatRequest):
     """
     Main chat endpoint that invokes the LangGraph agentic workflow.
     Returns a streaming response (SSE) for real-time token delivery.
-    Enhanced with memory system integration.
     """
     try:
         # Check API key first
         if not os.getenv("GOOGLE_API_KEY"):
             raise HTTPException(status_code=500, detail="GOOGLE_API_KEY not configured")
+        
+        # Lazy import modules
+        create_tutor_graph, load_memory_context, save_interaction_memory = get_tutor_modules()
         
         # Create the agentic graph
         graph = create_tutor_graph()
@@ -157,7 +147,7 @@ async def chat(request: ChatRequest):
         memory_data = await load_memory_context(user_id, session_id, request.message)
         
         # Initialize state with memory context
-        initial_state: AgentState = {
+        initial_state = {
             "messages": [{"role": "user", "content": request.message}],
             "user_id": user_id,
             "session_id": session_id,
@@ -166,7 +156,6 @@ async def chat(request: ChatRequest):
             "next_step": "supervisor",
             "rag_context": "",
             "search_results": "",
-            # Memory-enhanced fields
             "memory_context": memory_data.get("memory_context", ""),
             "user_profile": memory_data.get("user_profile", {}),
             "effective_strategies": memory_data.get("effective_strategies", []),
@@ -176,6 +165,7 @@ async def chat(request: ChatRequest):
         
         collected_response = ""
         final_state = None
+        MemoryManager = get_memory_module()
         
         async def event_generator():
             """Generate SSE events from the graph execution"""
@@ -215,7 +205,7 @@ async def chat(request: ChatRequest):
                         yield f"data: {json.dumps({'tool': tool_name, 'status': 'completed', 'output_preview': str(output)[:100]})}\n\n"
                 
                 # Save interaction to memory system
-                if collected_response and MEMORY_AVAILABLE:
+                if collected_response and MemoryManager:
                     extracted_facts = final_state.get("extracted_facts", []) if final_state else []
                     await save_interaction_memory(
                         user_id=user_id,
@@ -249,11 +239,9 @@ async def chat(request: ChatRequest):
 # Text-to-Speech endpoint
 @app.get("/api/tts")
 async def text_to_speech(text: str, voice: str = "en-US-AriaNeural", rate: str = "+0%"):
-    """
-    Generate speech from text using Edge TTS.
-    Returns audio/mpeg stream.
-    """
+    """Generate speech from text using Edge TTS."""
     try:
+        generate_speech = get_tts_module()
         audio_stream = generate_speech(text, voice, rate)
         
         return StreamingResponse(
@@ -270,11 +258,10 @@ async def text_to_speech(text: str, voice: str = "en-US-AriaNeural", rate: str =
 # Document ingestion endpoint
 @app.post("/api/ingest")
 async def ingest_document(file: UploadFile = File(...)):
-    """
-    Process and ingest a PDF document for RAG.
-    Extracts text, creates embeddings, and stores in Supabase.
-    """
+    """Process and ingest a PDF document for RAG."""
     try:
+        process_document = get_document_module()
+        
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are supported")
         
@@ -284,130 +271,63 @@ async def ingest_document(file: UploadFile = File(...)):
         return {
             "success": True,
             "filename": file.filename,
-            "chunks_created": result["chunks_count"],
-            "preview": result["preview"]
+            "chunks_created": result.get("chunks_created", 0),
+            "message": "Document processed and indexed successfully"
         }
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Web search endpoint
-@app.get("/api/search")
-async def search(query: str, max_results: int = 5):
-    """
-    Perform web search using DuckDuckGo.
-    """
-    try:
-        results = await web_search(query, max_results)
-        return {"results": results}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Image generation proxy (for Pollinations.ai)
-@app.get("/api/image")
-async def generate_image(prompt: str, width: int = 512, height: int = 512):
-    """
-    Generate an image URL using Pollinations.ai.
-    Returns the URL to the generated image.
-    """
-    import urllib.parse
-    
-    encoded_prompt = urllib.parse.quote(prompt)
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}"
-    
-    return {"url": image_url, "prompt": prompt}
-
-
-# Memory System Endpoints
+# Memory endpoints
 @app.get("/api/memory/profile/{user_id}")
-async def get_user_memory_profile(user_id: str):
-    """
-    Get user's learning profile from semantic memory.
-    Returns learning preferences, proficiencies, interests, etc.
-    """
-    if not MEMORY_AVAILABLE:
-        return {"error": "Memory system not available", "profile": {}}
-    
+async def get_memory_profile(user_id: str):
+    """Get user's memory profile including learning style and preferences."""
     try:
-        manager = MemoryManager(user_id, "profile-query")
-        profile = await manager.semantic.get_user_profile()
-        return {"profile": profile}
+        MemoryManager = get_memory_module()
+        if not MemoryManager:
+            return {"error": "Memory system not available"}
+        
+        manager = MemoryManager(user_id, "profile")
+        profile = await manager.get_user_profile()
+        
+        return {
+            "user_id": user_id,
+            "profile": profile
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/memory/history/{user_id}")
-async def get_learning_history(
-    user_id: str,
-    session_id: Optional[str] = None,
-    limit: int = 20
-):
-    """
-    Get user's learning history from episodic memory.
-    Can filter by session_id for specific chat history.
-    """
-    if not MEMORY_AVAILABLE:
-        return {"error": "Memory system not available", "history": []}
-    
+@app.get("/api/memory/context/{user_id}/{session_id}")
+async def get_memory_context(user_id: str, session_id: str, query: str = ""):
+    """Get relevant memory context for a query."""
     try:
-        manager = MemoryManager(user_id, session_id or "history-query")
+        MemoryManager = get_memory_module()
+        if not MemoryManager:
+            return {"context": "", "error": "Memory system not available"}
         
-        if session_id:
-            history = await manager.episodic.get_session_history(session_id)
-        else:
-            history = await manager.episodic.recall_episodes("", limit=limit)
+        manager = MemoryManager(user_id, session_id)
+        context = await manager.build_context_for_query(query)
         
-        return {"history": history}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/memory/strategies/{user_id}")
-async def get_effective_strategies(user_id: str):
-    """
-    Get effective teaching strategies for this user from procedural memory.
-    """
-    if not MEMORY_AVAILABLE:
-        return {"error": "Memory system not available", "strategies": []}
-    
-    try:
-        manager = MemoryManager(user_id, "strategy-query")
-        strategies = await manager.procedural.get_effective_strategies()
-        return {"strategies": strategies}
+        return context
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/memory/feedback")
 async def submit_feedback(request: FeedbackRequest):
-    """
-    Submit feedback on an interaction to improve procedural memory.
-    This helps the AI learn what explanations work for this user.
-    """
-    if not MEMORY_AVAILABLE:
-        return {"success": False, "error": "Memory system not available"}
-    
+    """Submit feedback on a response for memory system learning."""
     try:
+        MemoryManager = get_memory_module()
+        if not MemoryManager:
+            return {"success": False, "error": "Memory system not available"}
+        
         manager = MemoryManager(request.user_id, request.session_id)
-        
-        # Record the feedback as a procedural memory update
-        await manager.procedural.record_explanation_outcome(
-            topic="user_feedback",
-            explanation_style=request.feedback_text or "general",
-            was_successful=request.was_helpful,
-            feedback=request.feedback_text
+        await manager.record_feedback(
+            message_id=request.message_id,
+            was_helpful=request.was_helpful,
+            feedback_text=request.feedback_text
         )
-        
-        # If positive feedback, also store as episodic
-        if request.was_helpful:
-            await manager.episodic.store_episode(
-                session_id=request.session_id,
-                content=f"User found response helpful: {request.feedback_text or 'No additional feedback'}",
-                context={"type": "positive_feedback", "message_id": request.message_id},
-                importance=ImportanceLevel.MEDIUM
-            )
         
         return {"success": True}
     except Exception as e:
@@ -415,70 +335,16 @@ async def submit_feedback(request: FeedbackRequest):
 
 
 @app.post("/api/memory/consolidate/{user_id}")
-async def consolidate_memories(user_id: str, session_id: str):
-    """
-    Trigger memory consolidation for a user session.
-    Called when a chat session ends to move important working memories to long-term.
-    """
-    if not MEMORY_AVAILABLE:
-        return {"success": False, "error": "Memory system not available"}
-    
+async def consolidate_memories(user_id: str, session_id: str = None):
+    """Consolidate working memory into long-term storage."""
     try:
-        manager = MemoryManager(user_id, session_id)
-        await manager.consolidate_memories()
+        MemoryManager = get_memory_module()
+        if not MemoryManager:
+            return {"success": False, "error": "Memory system not available"}
+        
+        manager = MemoryManager(user_id, session_id or "consolidation")
+        await manager.consolidate_session()
+        
         return {"success": True, "message": "Memories consolidated"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/memory/context/{user_id}/{session_id}")
-async def get_cross_session_context(
-    user_id: str,
-    session_id: str,
-    topic: Optional[str] = None
-):
-    """
-    Get context from previous sessions on related topics.
-    Useful for maintaining learning continuity across sessions.
-    """
-    if not MEMORY_AVAILABLE:
-        return {"error": "Memory system not available", "context": []}
-    
-    try:
-        manager = MemoryManager(user_id, session_id)
-        context = await manager.get_cross_session_context(topic=topic, limit=10)
-        return {"context": context}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/memory/fact")
-async def store_user_fact(
-    user_id: str,
-    category: str,
-    fact: str,
-    session_id: Optional[str] = None
-):
-    """
-    Manually store a fact about the user in semantic memory.
-    Useful for onboarding or explicit user preferences.
-    """
-    if not MEMORY_AVAILABLE:
-        return {"success": False, "error": "Memory system not available"}
-    
-    try:
-        manager = MemoryManager(user_id, session_id or "fact-store")
-        memory_id = await manager.semantic.store_fact(
-            category=category,
-            fact=fact,
-            source_session=session_id
-        )
-        return {"success": True, "memory_id": memory_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Vercel handler
-def handler(request):
-    """Vercel serverless function handler"""
-    return app

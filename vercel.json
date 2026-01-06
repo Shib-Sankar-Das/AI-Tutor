@@ -35,7 +35,7 @@
     },
     {
       "source": "/api/health",
-      "destination": "/api/minimal.py"
+      "destination": "/api/index.py"
     }
   ],
   "functions": {
