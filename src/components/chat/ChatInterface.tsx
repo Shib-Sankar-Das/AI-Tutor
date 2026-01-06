@@ -132,6 +132,26 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
+              
+              // Handle error responses from the API
+              if (data.error) {
+                // Check if it's a rate limit error
+                const isRateLimitError = data.error.includes('429') || 
+                                         data.error.includes('RESOURCE_EXHAUSTED') ||
+                                         data.error.includes('quota');
+                
+                const errorMessage = isRateLimitError
+                  ? "⚠️ **Rate Limit Exceeded**\n\nThe AI service has reached its usage limit. Please wait a moment and try again.\n\nThis typically resets within a few seconds to a minute."
+                  : `Sorry, I encountered an error: ${data.error.substring(0, 200)}...`;
+                
+                assistantContent = errorMessage;
+                const store = useAppStore.getState();
+                store.updateMessage(sessionId, assistantMessageId, {
+                  content: assistantContent,
+                });
+                break; // Stop processing after error
+              }
+              
               if (data.token) {
                 assistantContent += data.token;
                 // Update the message content
@@ -151,6 +171,15 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
             }
           }
         }
+      }
+
+      // Handle case where no content was received
+      if (!assistantContent.trim()) {
+        assistantContent = "I apologize, but I couldn't generate a response. Please try again.";
+        const store = useAppStore.getState();
+        store.updateMessage(sessionId, assistantMessageId, {
+          content: assistantContent,
+        });
       }
 
       // Detect topic from conversation for session context

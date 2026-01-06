@@ -79,6 +79,32 @@ def get_llm():
     )
 
 
+def get_message_content(msg) -> str:
+    """Extract content from a message (handles both dict and LangChain message objects)"""
+    if isinstance(msg, dict):
+        return msg.get("content", "")
+    elif hasattr(msg, "content"):
+        return msg.content
+    else:
+        return str(msg)
+
+
+def get_message_role(msg) -> str:
+    """Extract role from a message (handles both dict and LangChain message objects)"""
+    if isinstance(msg, dict):
+        return msg.get("role", "user")
+    elif isinstance(msg, HumanMessage):
+        return "user"
+    elif isinstance(msg, AIMessage):
+        return "assistant"
+    elif isinstance(msg, SystemMessage):
+        return "system"
+    elif hasattr(msg, "type"):
+        return "user" if msg.type == "human" else "assistant"
+    else:
+        return "user"
+
+
 async def load_memory_context(user_id: str, session_id: str, query: str) -> Dict[str, Any]:
     """Load memory context for a user query."""
     if not MEMORY_AVAILABLE:
@@ -146,7 +172,8 @@ def supervisor_node(state: AgentState) -> AgentState:
     llm = get_llm()
     
     messages = state["messages"]
-    last_message = messages[-1]["content"] if messages else ""
+    last_message = get_message_content(messages[-1]) if messages else ""
+    
     memory_context = state.get("memory_context", "")
     user_profile = state.get("user_profile", {})
     
@@ -267,10 +294,10 @@ def tutor_node(state: AgentState) -> AgentState:
     # Build message history for context
     chat_messages = [SystemMessage(content=system_prompt)]
     for msg in messages[-10:]:  # Keep last 10 messages for context
-        if msg.get("role") == "user":
-            chat_messages.append(HumanMessage(content=msg["content"]))
+        if get_message_role(msg) == "user":
+            chat_messages.append(HumanMessage(content=get_message_content(msg)))
         else:
-            chat_messages.append(AIMessage(content=msg["content"]))
+            chat_messages.append(AIMessage(content=get_message_content(msg)))
     
     response = llm.invoke(chat_messages)
     
@@ -340,10 +367,10 @@ def rag_node(state: AgentState) -> AgentState:
     
     chat_messages = [SystemMessage(content=system_prompt)]
     for msg in messages[-5:]:
-        if msg.get("role") == "user":
-            chat_messages.append(HumanMessage(content=msg["content"]))
+        if get_message_role(msg) == "user":
+            chat_messages.append(HumanMessage(content=get_message_content(msg)))
         else:
-            chat_messages.append(AIMessage(content=msg["content"]))
+            chat_messages.append(AIMessage(content=get_message_content(msg)))
     
     response = llm.invoke(chat_messages)
     
@@ -365,7 +392,7 @@ def visual_node(state: AgentState) -> AgentState:
     llm = get_llm()
     
     messages = state["messages"]
-    last_message = messages[-1]["content"] if messages else ""
+    last_message = get_message_content(messages[-1]) if messages else ""
     user_profile = state.get("user_profile", {})
     memory_context = state.get("memory_context", "")
     
@@ -434,7 +461,7 @@ def presentation_node(state: AgentState) -> AgentState:
     llm = get_llm()
     
     messages = state["messages"]
-    last_message = messages[-1]["content"] if messages else ""
+    last_message = get_message_content(messages[-1]) if messages else ""
     user_profile = state.get("user_profile", {})
     effective_strategies = state.get("effective_strategies", [])
     
@@ -582,10 +609,10 @@ def feynman_node(state: AgentState) -> AgentState:
     
     chat_messages = [SystemMessage(content=system_prompt)]
     for msg in messages[-8:]:
-        if msg.get("role") == "user":
-            chat_messages.append(HumanMessage(content=msg["content"]))
+        if get_message_role(msg) == "user":
+            chat_messages.append(HumanMessage(content=get_message_content(msg)))
         else:
-            chat_messages.append(AIMessage(content=msg["content"]))
+            chat_messages.append(AIMessage(content=get_message_content(msg)))
     
     response = llm.invoke(chat_messages)
     
@@ -656,10 +683,10 @@ def advocate_node(state: AgentState) -> AgentState:
     
     chat_messages = [SystemMessage(content=system_prompt)]
     for msg in messages[-8:]:
-        if msg.get("role") == "user":
-            chat_messages.append(HumanMessage(content=msg["content"]))
+        if get_message_role(msg) == "user":
+            chat_messages.append(HumanMessage(content=get_message_content(msg)))
         else:
-            chat_messages.append(AIMessage(content=msg["content"]))
+            chat_messages.append(AIMessage(content=get_message_content(msg)))
     
     response = llm.invoke(chat_messages)
     
