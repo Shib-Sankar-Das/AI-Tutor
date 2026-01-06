@@ -6,6 +6,10 @@
       "destination": "/api/test.py"
     },
     {
+      "source": "/api/test/imports",
+      "destination": "/api/test.py"
+    },
+    {
       "source": "/api/chat",
       "destination": "/api/index.py"
     },
