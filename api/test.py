@@ -137,3 +137,14 @@ async def test_modules():
         "module_imports": results
     }
 
+@app.get("/api/test/index")
+async def test_index():
+    """Try to import the main index module"""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import index
+        return {"index": "ok", "has_app": hasattr(index, "app")}
+    except Exception as e:
+        import traceback
+        return {"index": "error", "error": str(e), "traceback": traceback.format_exc()}
+

@@ -14,6 +14,10 @@
       "destination": "/api/test.py"
     },
     {
+      "source": "/api/test/index",
+      "destination": "/api/test.py"
+    },
+    {
       "source": "/api/chat",
       "destination": "/api/index.py"
     },
