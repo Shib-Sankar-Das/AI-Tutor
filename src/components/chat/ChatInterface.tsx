@@ -60,7 +60,7 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
     const consolidateOnLeave = async () => {
       if (user?.id && sessionMessages.length > 2) {
         try {
-          await fetch(`http://localhost:8000/memory/consolidate/${user.id}`, {
+          await fetch(`/api/memory/consolidate/${user.id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: sessionId }),
@@ -92,7 +92,7 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/chat', {
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

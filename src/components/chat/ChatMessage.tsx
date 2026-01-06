@@ -58,7 +58,7 @@ export function ChatMessage({ message, onOpenWorkspace, sessionId }: ChatMessage
 
       // Use backend TTS endpoint for better quality
       const response = await fetch(
-        `http://localhost:8000/tts?text=${encodeURIComponent(message.content)}&voice=en-US-AriaNeural`
+        `/api/tts?text=${encodeURIComponent(message.content)}&voice=en-US-AriaNeural`
       );
       
       if (response.ok) {
@@ -133,7 +133,7 @@ export function ChatMessage({ message, onOpenWorkspace, sessionId }: ChatMessage
     
     try {
       // Send feedback to memory system
-      await fetch('http://localhost:8000/memory/feedback', {
+      await fetch('/api/memory/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

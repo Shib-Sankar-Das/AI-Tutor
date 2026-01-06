@@ -13,13 +13,37 @@
   ],
   "routes": [
     {
+      "src": "/api/chat",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/tts",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/ingest",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/memory/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/api/health",
+      "dest": "/api/index.py"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "/api/index.py"
     }
   ],
   "functions": {
     "api/**/*.py": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "memory": 1024
     }
+  },
+  "env": {
+    "PYTHONUNBUFFERED": "1"
   }
 }
