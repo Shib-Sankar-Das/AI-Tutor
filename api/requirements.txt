@@ -5,6 +5,9 @@ fastapi>=0.109.0
 uvicorn>=0.27.0
 python-multipart>=0.0.6
 
+# HTTP Client for Hugging Face API
+httpx>=0.27.0
+
 # LangGraph and LangChain (minimal)
 langgraph>=0.0.50
 langchain-core>=0.1.20

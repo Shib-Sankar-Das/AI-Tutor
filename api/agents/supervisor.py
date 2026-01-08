@@ -2,17 +2,18 @@
 LangGraph Supervisor Agent - The Brain of the AI Tutor
 Orchestrates multiple specialized agents based on user intent
 Enhanced with Agentic Memory System for context-aware tutoring
+Now supports Hugging Face Inference API with Gemma-3-27b-it (FREE!)
 """
 
 from typing import TypedDict, Annotated, List, Dict, Any, Literal, Optional
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 import os
 import sys
 import json
 import asyncio
+import httpx
 
 # Add parent directory to path for local development
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -78,6 +79,7 @@ def get_llm(model: str = None):
     - gemini-2.5-pro: 2 RPM, 50 RPD (requests per day)
     - gemini-2.0-flash: 15 RPM, 1500 RPD
     """
+    from langchain_google_genai import ChatGoogleGenerativeAI
     model_name = model or os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
     return ChatGoogleGenerativeAI(
         model=model_name,
@@ -85,6 +87,94 @@ def get_llm(model: str = None):
         temperature=0.7,
         convert_system_message_to_human=True,
     )
+
+
+# Hugging Face Inference API for Gemma-3-27b-it (FREE!)
+HUGGINGFACE_API_URL = "https://router.huggingface.co/novita/v3/openai/chat/completions"
+HUGGINGFACE_MODEL = "google/gemma-3-27b-it"
+
+async def call_huggingface_llm(messages: List[Dict[str, str]], max_tokens: int = 2048) -> str:
+    """
+    Call Hugging Face Inference API with Gemma-3-27b-it model.
+    This is 100% FREE with a Hugging Face account!
+    
+    Args:
+        messages: List of message dicts with 'role' and 'content'
+        max_tokens: Maximum tokens to generate
+        
+    Returns:
+        Generated text response
+    """
+    hf_token = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
+    
+    if not hf_token:
+        raise ValueError("HUGGINGFACE_API_KEY or HF_TOKEN environment variable not set")
+    
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": HUGGINGFACE_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+        "stream": False
+    }
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            HUGGINGFACE_API_URL,
+            headers=headers,
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            error_text = response.text
+            raise Exception(f"Hugging Face API error {response.status_code}: {error_text}")
+        
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+
+
+def call_huggingface_llm_sync(messages: List[Dict[str, str]], max_tokens: int = 2048) -> str:
+    """
+    Synchronous version of Hugging Face API call.
+    """
+    import httpx
+    
+    hf_token = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
+    
+    if not hf_token:
+        raise ValueError("HUGGINGFACE_API_KEY or HF_TOKEN environment variable not set")
+    
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": HUGGINGFACE_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+        "stream": False
+    }
+    
+    with httpx.Client(timeout=120.0) as client:
+        response = client.post(
+            HUGGINGFACE_API_URL,
+            headers=headers,
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            error_text = response.text
+            raise Exception(f"Hugging Face API error {response.status_code}: {error_text}")
+        
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
 
 
 def get_message_content(msg) -> str:

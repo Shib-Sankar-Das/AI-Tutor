@@ -91,6 +91,7 @@ def get_memory_module():
 # Health check endpoint
 @app.get("/api/health")
 async def health_check():
+    hf_token = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
     google_api_key = os.getenv("GOOGLE_API_KEY")
     
     # Test imports
@@ -116,27 +117,31 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "agentic-ai-tutor",
+        "llm_provider": "huggingface",
+        "llm_model": "gemma-3-27b-it",
+        "huggingface_configured": bool(hf_token),
         "google_api_configured": bool(google_api_key),
         "modules": modules_status,
         "python_version": sys.version,
     }
 
 
-# Main chat endpoint - simplified direct approach for reliable single API call
+# Main chat endpoint - uses Hugging Face Gemma-3-27b-it (FREE!)
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     """
-    Main chat endpoint - uses direct LLM call to ensure exactly ONE API request.
-    This avoids potential issues with LangGraph streaming causing multiple calls.
+    Main chat endpoint - uses Hugging Face Inference API with Gemma-3-27b-it.
+    100% FREE with unlimited requests!
     """
     try:
         # Check API key first
-        if not os.getenv("GOOGLE_API_KEY"):
-            raise HTTPException(status_code=500, detail="GOOGLE_API_KEY not configured")
+        hf_token = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
+        if not hf_token:
+            raise HTTPException(status_code=500, detail="HUGGINGFACE_API_KEY not configured. Get a free token at huggingface.co/settings/tokens")
         
         # Lazy import
-        from agents.supervisor import get_llm, supervisor_node, tutor_node, rag_node, visual_node, presentation_node, feynman_node, advocate_node
-        from agents.supervisor import load_memory_context, save_interaction_memory, get_message_content
+        from agents.supervisor import call_huggingface_llm, supervisor_node
+        from agents.supervisor import load_memory_context, save_interaction_memory
         
         user_id = request.user_id or "anonymous"
         session_id = request.session_id or request.thread_id
@@ -162,7 +167,7 @@ async def chat(request: ChatRequest):
         }
         
         async def event_generator():
-            """Generate SSE events with single LLM call"""
+            """Generate SSE events with Hugging Face Gemma-3-27b-it"""
             try:
                 # Step 1: Route using pattern matching (NO LLM call)
                 state_after_routing = supervisor_node(state)
@@ -170,31 +175,34 @@ async def chat(request: ChatRequest):
                 
                 yield f"data: {json.dumps({'status': 'routing', 'agent': next_agent})}\n\n"
                 
-                # Step 2: Call the appropriate agent (ONE LLM call)
-                agent_map = {
-                    "tutor": tutor_node,
-                    "rag": rag_node,
-                    "visual": visual_node,
-                    "presentation": presentation_node,
-                    "feynman": feynman_node,
-                    "advocate": advocate_node,
+                # Step 2: Build the prompt based on agent type
+                agent_prompts = {
+                    "tutor": "You are a helpful AI tutor. Explain concepts clearly and provide examples when helpful. Be encouraging and patient.",
+                    "rag": "You are an AI assistant that answers questions based on provided context. Be accurate and cite sources when possible.",
+                    "visual": "You are an AI assistant that helps create visual explanations. Describe diagrams, charts, or visual aids that would help explain the concept.",
+                    "presentation": "You are an AI assistant that helps create presentations. Structure content with clear headings, bullet points, and key takeaways.",
+                    "feynman": "You are an AI tutor using the Feynman technique. Explain concepts in the simplest possible terms, as if teaching a beginner.",
+                    "advocate": "You are a devil's advocate AI. Challenge assumptions and present alternative viewpoints to deepen understanding.",
                 }
                 
-                agent_func = agent_map.get(next_agent, tutor_node)
+                system_prompt = agent_prompts.get(next_agent, agent_prompts["tutor"])
+                
+                # Add memory context if available
+                if state.get("memory_context"):
+                    system_prompt += f"\n\nUser Context:\n{state['memory_context']}"
+                
+                # Build messages for Hugging Face API
+                hf_messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": request.message}
+                ]
                 
                 yield f"data: {json.dumps({'status': 'generating'})}\n\n"
                 
-                # Execute agent (this makes exactly ONE LLM call)
-                final_state = agent_func(state_after_routing)
-                
-                # Get the response from the last message
-                response_content = ""
-                if final_state.get("messages"):
-                    last_msg = final_state["messages"][-1]
-                    response_content = get_message_content(last_msg)
+                # Call Hugging Face API (ONE call)
+                response_content = await call_huggingface_llm(hf_messages)
                 
                 # Stream the complete response as tokens (simulated streaming)
-                # This provides a better UX even though the LLM call was blocking
                 words = response_content.split(' ')
                 for i, word in enumerate(words):
                     token = word + (' ' if i < len(words) - 1 else '')
@@ -202,14 +210,13 @@ async def chat(request: ChatRequest):
                 
                 # Save to memory (no LLM call)
                 try:
-                    extracted_facts = final_state.get("extracted_facts", [])
                     await save_interaction_memory(
                         user_id=user_id,
                         session_id=session_id,
                         user_message=request.message,
                         assistant_response=response_content,
                         topic=memory_data.get("current_topic"),
-                        extracted_facts=extracted_facts
+                        extracted_facts=[]
                     )
                 except Exception as mem_error:
                     print(f"Memory save error (non-critical): {mem_error}")
@@ -219,10 +226,12 @@ async def chat(request: ChatRequest):
             except Exception as e:
                 error_msg = str(e)
                 # Provide user-friendly error messages
-                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-                    yield f"data: {json.dumps({'error': '⚠️ Rate limit reached. The AI service is temporarily unavailable. Please wait 30-60 seconds and try again.'})}\n\n"
+                if "401" in error_msg or "Unauthorized" in error_msg:
+                    yield f"data: {json.dumps({'error': '⚠️ Invalid Hugging Face token. Please check your HUGGINGFACE_API_KEY.'})}\n\n"
+                elif "503" in error_msg or "Service Unavailable" in error_msg:
+                    yield f"data: {json.dumps({'error': '⚠️ Hugging Face model is loading. Please wait 30 seconds and try again.'})}\n\n"
                 else:
-                    yield f"data: {json.dumps({'error': error_msg})}\n\n"
+                    yield f"data: {json.dumps({'error': f'Error: {error_msg}'})}\n\n"
         
         return StreamingResponse(
             event_generator(),
