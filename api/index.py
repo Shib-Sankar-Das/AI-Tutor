@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Helper function to parse presentation slides from LLM response
 def parse_presentation_slides(content: str):
-    """Parse the LLM response into structured slide data with clean text."""
+    """Parse the LLM response into structured slide data with proper bullet points."""
     slides = []
     import re
     
@@ -27,18 +27,15 @@ def parse_presentation_slides(content: str):
     slide_pattern = r'---SLIDE\s*\d*---\s*(.*?)---END SLIDE---'
     matches = re.findall(slide_pattern, content, re.DOTALL | re.IGNORECASE)
     
-    def clean_text(text: str) -> str:
-        """Remove markdown formatting from text."""
-        # Remove bold markers
+    def clean_line(text: str) -> str:
+        """Clean a single line of text."""
+        # Remove markdown bold/italic markers
         text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
         text = re.sub(r'__([^_]+)__', r'\1', text)
-        # Remove italic markers
         text = re.sub(r'\*([^*]+)\*', r'\1', text)
         text = re.sub(r'_([^_]+)_', r'\1', text)
-        # Remove headers
-        text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
-        # Clean up bullet points - standardize to •
-        text = re.sub(r'^[-*]\s+', '• ', text, flags=re.MULTILINE)
+        # Remove header markers
+        text = re.sub(r'^#+\s*', '', text)
         return text.strip()
     
     for i, match in enumerate(matches):
@@ -50,20 +47,46 @@ def parse_presentation_slides(content: str):
         
         lines = match.strip().split('\n')
         body_lines = []
+        in_content = False
         
         for line in lines:
-            line = line.strip()
-            if line.lower().startswith('title:'):
-                slide["title"] = clean_text(line[6:].strip())
-            elif line.lower().startswith('image suggestion:') or line.lower().startswith('image:'):
-                # Only capture image prompt if it has meaningful content
-                img_prompt = line.split(':', 1)[1].strip()
-                if img_prompt and len(img_prompt) > 5:
+            line_stripped = line.strip()
+            line_lower = line_stripped.lower()
+            
+            # Parse title
+            if line_lower.startswith('title:'):
+                slide["title"] = clean_line(line_stripped[6:].strip())
+                in_content = False
+            # Parse image prompt
+            elif line_lower.startswith('image suggestion:') or line_lower.startswith('image:'):
+                img_prompt = line_stripped.split(':', 1)[1].strip()
+                if img_prompt and len(img_prompt) > 10:
                     slide["imagePrompt"] = img_prompt
-            elif line.lower().startswith('content:'):
-                continue  # Skip the "Content:" header
-            elif line:
-                body_lines.append(clean_text(line))
+                in_content = False
+            # Start of content section
+            elif line_lower.startswith('content:'):
+                in_content = True
+                # Check if there's content on the same line
+                rest = line_stripped[8:].strip()
+                if rest:
+                    body_lines.append('• ' + clean_line(rest) if not rest.startswith('•') else clean_line(rest))
+            # Body content lines
+            elif line_stripped and in_content:
+                cleaned = clean_line(line_stripped)
+                if cleaned:
+                    # Ensure bullet point format
+                    if cleaned.startswith(('•', '-', '*')):
+                        cleaned = '• ' + cleaned.lstrip('•-* ')
+                    else:
+                        cleaned = '• ' + cleaned
+                    body_lines.append(cleaned)
+            elif line_stripped and not line_lower.startswith(('title:', 'image', 'content:')):
+                # Capture any other content that might be body text
+                cleaned = clean_line(line_stripped)
+                if cleaned and len(cleaned) > 3:
+                    if cleaned.startswith(('•', '-', '*')):
+                        cleaned = '• ' + cleaned.lstrip('•-* ')
+                    body_lines.append(cleaned)
         
         slide["body"] = '\n'.join(body_lines)
         
@@ -472,41 +495,56 @@ IMPORTANT GUIDELINES:
 - Use proper markdown formatting throughout
 - End with key takeaways or recommendations""",
                     
-                    "presentation": """You are an expert presentation designer creating beautiful, professional presentations.
+                    "presentation": """You are an expert presentation designer. Create professional, content-rich presentations.
 
-CRITICAL FORMATTING RULES - Follow EXACTLY:
-1. Structure each slide with this EXACT format (no markdown inside slides):
+CRITICAL: Follow this EXACT format for EVERY slide:
 
----SLIDE [number]---
-Title: [Clear, Concise Slide Title]
+---SLIDE 1---
+Title: [Main Presentation Title]
 Content:
-• [Point 1 - plain text, no asterisks or markdown]
-• [Point 2 - plain text]
-• [Point 3 - plain text]
-• [Point 4 if needed]
-Image: [ONLY if specifically relevant - describe an image that would enhance THIS slide]
+[A brief subtitle or tagline for the presentation]
+Image: [Only if user specifically requested images for title slide]
 ---END SLIDE---
 
-CONTENT GUIDELINES:
-• Use bullet points (•) not dashes or asterisks
-• Keep bullet points concise (max 10-12 words each)
-• NO markdown formatting (no **, no ##, no ``` inside slides)
-• 3-5 bullet points per slide maximum
-• Use clear, professional language
+---SLIDE 2---
+Title: [Overview/Agenda]
+Content:
+• First topic to be covered
+• Second topic to be covered
+• Third topic to be covered
+• Fourth topic to be covered
+---END SLIDE---
 
-IMAGE RULES - IMPORTANT:
-• Only include "Image:" line if user specifically asks for images OR if it greatly enhances understanding
-• If no image needed, omit the "Image:" line entirely
-• Image descriptions should be specific and detailed for AI generation
+---SLIDE 3---
+Title: [First Main Topic]
+Content:
+• Key point about this topic with specific details
+• Another important aspect to understand
+• Supporting information or example
+• Additional relevant point
+• Conclusion or takeaway for this topic
+Image: [Only if user asked for images - describe specific visual]
+---END SLIDE---
 
-REQUIRED SLIDES:
-1. Title slide with topic and subtitle
-2. Overview/Agenda (what will be covered)
-3. 4-6 content slides with key information
-4. Summary/Key Takeaways
-5. Thank You / Q&A slide
+[Continue with 4-6 more content slides following the same format]
 
-Make content engaging, educational, and visually organized.""",
+CONTENT RULES:
+1. Use • for ALL bullet points (not -, not *)
+2. Each bullet should be a complete thought (10-20 words)
+3. Include specific facts, data, examples, or details
+4. NO markdown formatting (no **, no ##, no ``` anywhere)
+5. Make content educational and substantive
+6. Follow the user's topic and requirements exactly
+7. Don't skip or summarize information from the user's request
+
+IMAGE RULES:
+• Only include "Image:" line if user EXPLICITLY asks for images
+• If user doesn't mention images, omit the Image line entirely
+• If included, describe a specific, professional visual
+
+SLIDE COUNT: Create 7-10 slides minimum for comprehensive coverage.
+
+IMPORTANT: Capture ALL information from the user's prompt. Don't leave out any points they mentioned.""",
                 }
                 
                 system_prompt = tool_prompts.get(selected_tool, tool_prompts["chat"])

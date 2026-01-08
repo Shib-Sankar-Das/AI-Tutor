@@ -16,6 +16,9 @@ import { SlideData } from '@/lib/store';
 import { showToast } from '@/components/ui/Toaster';
 import { GoogleSlides, getGoogleAccessToken } from '@/lib/google-auth';
 
+// Cache for generated slide images
+const imageCache = new Map<string, string>();
+
 interface SlideDeckProps {
   slides: SlideData[];
   onClose: () => void;
@@ -43,12 +46,72 @@ function hasValidImage(imagePrompt?: string): boolean {
   return true;
 }
 
+// Parse markdown formatting for rich text display
+function parseTextFormatting(text: string): { text: string; bold?: boolean; italic?: boolean }[] {
+  const parts: { text: string; bold?: boolean; italic?: boolean }[] = [];
+  
+  // Simple parsing - split by formatting markers
+  let remaining = text;
+  while (remaining.length > 0) {
+    // Check for bold **text**
+    const boldMatch = remaining.match(/^\*\*([^*]+)\*\*/);
+    if (boldMatch) {
+      parts.push({ text: boldMatch[1], bold: true });
+      remaining = remaining.slice(boldMatch[0].length);
+      continue;
+    }
+    
+    // Check for italic *text*
+    const italicMatch = remaining.match(/^\*([^*]+)\*/);
+    if (italicMatch) {
+      parts.push({ text: italicMatch[1], italic: true });
+      remaining = remaining.slice(italicMatch[0].length);
+      continue;
+    }
+    
+    // Find next formatting marker
+    const nextBold = remaining.indexOf('**');
+    const nextItalic = remaining.indexOf('*');
+    let nextMarker = -1;
+    
+    if (nextBold !== -1 && (nextItalic === -1 || nextBold <= nextItalic)) {
+      nextMarker = nextBold;
+    } else if (nextItalic !== -1) {
+      nextMarker = nextItalic;
+    }
+    
+    if (nextMarker > 0) {
+      parts.push({ text: remaining.slice(0, nextMarker) });
+      remaining = remaining.slice(nextMarker);
+    } else {
+      parts.push({ text: remaining });
+      break;
+    }
+  }
+  
+  return parts.filter(p => p.text.length > 0);
+}
+
+// Format body content for display (preserve bullets and formatting)
+function formatBodyContent(body: string): string[] {
+  return body
+    .split('\n')
+    .filter(line => line.trim())
+    .map(line => {
+      // Remove leading bullet markers but track them
+      let cleaned = line.replace(/^[•\-*]\s*/, '').trim();
+      return cleaned;
+    });
+}
+
 export function SlideDeck({ slides, onClose }: SlideDeckProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [hasGoogleAccess, setHasGoogleAccess] = useState(false);
+  const [slideImages, setSlideImages] = useState<Record<number, string>>({});
+  const [loadingImages, setLoadingImages] = useState<Record<number, boolean>>({});
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,6 +128,53 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Generate image for current slide using SD 3.5
+  useEffect(() => {
+    const slide = slides[currentSlide];
+    if (!slide || currentSlide === 0 || !hasValidImage(slide.imagePrompt)) return;
+    if (slideImages[currentSlide] || loadingImages[currentSlide]) return;
+
+    // Check cache first
+    const cacheKey = slide.imagePrompt || '';
+    if (cacheKey && imageCache.has(cacheKey)) {
+      const cachedImage = imageCache.get(cacheKey);
+      if (cachedImage) {
+        setSlideImages(prev => ({ ...prev, [currentSlide]: cachedImage }));
+        return;
+      }
+    }
+
+    // Generate image
+    setLoadingImages(prev => ({ ...prev, [currentSlide]: true }));
+
+    fetch('/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: `${slide.imagePrompt}, professional presentation graphic, clean design, corporate style, minimalist, high quality`,
+        negative_prompt: 'text, words, letters, blurry, low quality, watermark',
+        width: 512,
+        height: 384,
+        steps: 20,
+        guidance_scale: 4.0
+      })
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.image_base64) {
+          const imageUrl = `data:image/jpeg;base64,${data.image_base64}`;
+          if (cacheKey) {
+            imageCache.set(cacheKey, imageUrl);
+          }
+          setSlideImages(prev => ({ ...prev, [currentSlide]: imageUrl }));
+        }
+      })
+      .catch(console.error)
+      .finally(() => {
+        setLoadingImages(prev => ({ ...prev, [currentSlide]: false }));
+      });
+  }, [currentSlide, slides, slideImages, loadingImages]);
 
   const nextSlide = () => {
     setCurrentSlide((prev) => Math.min(prev + 1, slides.length - 1));
@@ -480,40 +590,53 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
               <div className="bg-gradient-to-r from-blue-600 to-blue-700 -mx-6 -mt-6 px-6 py-4 mb-4">
                 <h2 className="text-xl font-semibold text-white">{cleanMarkdown(slide.title)}</h2>
               </div>
-              <div className={`flex gap-4 h-[calc(100%-4rem)] ${hasValidImage(slide.imagePrompt) ? '' : ''}`}>
+              <div className={`flex gap-4 h-[calc(100%-4rem)]`}>
                 <div className={`${hasValidImage(slide.imagePrompt) ? 'w-3/5' : 'w-full'}`}>
                   <ul className="space-y-3">
-                    {slide.body.split('\n').filter(l => l.trim()).map((line, idx) => (
-                      <li
-                        key={idx}
-                        className="flex items-start gap-3 text-gray-700 dark:text-gray-300"
-                      >
-                        <span className="w-2 h-2 mt-2 rounded-full bg-blue-500 flex-shrink-0" />
-                        <span className="text-base">{cleanMarkdown(line.replace(/^[-•*]\s*/, ''))}</span>
-                      </li>
-                    ))}
+                    {formatBodyContent(slide.body).map((line, idx) => {
+                      const formattedParts = parseTextFormatting(line);
+                      return (
+                        <li
+                          key={idx}
+                          className="flex items-start gap-3 text-gray-700 dark:text-gray-300"
+                        >
+                          <span className="w-2 h-2 mt-2 rounded-full bg-blue-500 flex-shrink-0" />
+                          <span className="text-base">
+                            {formattedParts.map((part, pIdx) => (
+                              <span
+                                key={pIdx}
+                                className={`${part.bold ? 'font-bold' : ''} ${part.italic ? 'italic' : ''}`}
+                              >
+                                {part.text}
+                              </span>
+                            ))}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
                 {hasValidImage(slide.imagePrompt) && (
                   <div className="w-2/5 flex items-start justify-center pt-2">
                     <div className="relative w-full aspect-[4/3] bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden shadow-md">
-                      <img
-                        src={`https://image.pollinations.ai/prompt/${encodeURIComponent(
-                          slide.imagePrompt + ', professional, clean design, minimalist'
-                        )}?width=400&height=300`}
-                        alt={slide.title}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        onLoad={(e) => {
-                          // Hide loading placeholder when image loads
-                          const parent = e.currentTarget.parentElement;
-                          const placeholder = parent?.querySelector('.placeholder');
-                          if (placeholder) placeholder.classList.add('hidden');
-                        }}
-                      />
-                      <div className="placeholder absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-600 animate-pulse">
-                        <ImageIcon className="w-8 h-8 text-gray-400" />
-                      </div>
+                      {slideImages[currentSlide] ? (
+                        <img
+                          src={slideImages[currentSlide]}
+                          alt={slide.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-200 dark:bg-gray-600">
+                          {loadingImages[currentSlide] ? (
+                            <>
+                              <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                              <span className="text-xs text-gray-500 mt-2">Generating image...</span>
+                            </>
+                          ) : (
+                            <ImageIcon className="w-8 h-8 text-gray-400" />
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
