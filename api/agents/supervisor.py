@@ -203,6 +203,42 @@ def get_message_role(msg) -> str:
         return "user"
 
 
+def auto_select_tool(message: str) -> str:
+    """
+    Auto-select the best tool based on user message.
+    Uses pattern matching (NO LLM call) for instant routing.
+    """
+    message_lower = message.lower()
+    
+    # Report patterns
+    report_patterns = [
+        "report", "document", "detailed analysis", "comprehensive",
+        "write about", "research paper", "essay", "thesis",
+        "summarize in detail", "full explanation", "in-depth",
+        "generate a report", "create a document", "write a paper"
+    ]
+    
+    # Presentation patterns
+    presentation_patterns = [
+        "presentation", "ppt", "powerpoint", "slides", "slide deck",
+        "create slides", "make a presentation", "design slides",
+        "keynote", "pitch deck", "slideshow"
+    ]
+    
+    # Check for report
+    for pattern in report_patterns:
+        if pattern in message_lower:
+            return "report"
+    
+    # Check for presentation
+    for pattern in presentation_patterns:
+        if pattern in message_lower:
+            return "presentation"
+    
+    # Default to chat
+    return "chat"
+
+
 async def load_memory_context(user_id: str, session_id: str, query: str) -> Dict[str, Any]:
     """Load memory context for a user query."""
     if not MEMORY_AVAILABLE:

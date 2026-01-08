@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, Mic, MicOff, Volume2, VolumeX, Loader2 } from 'lucide-react';
+import { Send, Paperclip, Mic, MicOff, Volume2, VolumeX, Loader2, Download } from 'lucide-react';
 import { useAppStore, Message } from '@/lib/store';
 import { ChatMessage } from './ChatMessage';
 import { VoiceControl } from './VoiceControl';
 import { FileUpload } from './FileUpload';
+import { ToolSelector, ToolType } from './ToolSelector';
+import { ChatExport } from './ChatExport';
+import { ImageUpload, ImagePreviewCompact } from './ImageUpload';
 
 interface ChatInterfaceProps {
   sessionId: string;
@@ -15,6 +18,8 @@ interface ChatInterfaceProps {
 export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [showFileUpload, setShowFileUpload] = useState(false);
+  const [selectedTool, setSelectedTool] = useState<ToolType>('auto');
+  const [selectedImage, setSelectedImage] = useState<{ base64: string; mimeType: string; preview: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -87,10 +92,13 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
       role: 'user',
       content: input.trim(),
       timestamp: new Date(),
+      metadata: selectedImage ? { imageUrl: selectedImage.preview } : undefined,
     };
 
     addMessage(sessionId, userMessage);
+    const imageToSend = selectedImage;
     setInput('');
+    setSelectedImage(null);
     setIsLoading(true);
 
     try {
@@ -101,7 +109,12 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
           message: userMessage.content,
           thread_id: sessionId,
           language: settings.language,
-          user_id: user?.id,  // Pass user ID for memory system
+          user_id: user?.id,
+          tool: selectedTool,
+          image: imageToSend ? {
+            base64: imageToSend.base64,
+            mimeType: imageToSend.mimeType,
+          } : undefined,
         }),
       });
 
@@ -166,6 +179,22 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
                   metadata: data.metadata,
                 });
               }
+              
+              // Handle slide data for presentations
+              if (data.slideData) {
+                const store = useAppStore.getState();
+                store.updateMessage(sessionId, assistantMessageId, {
+                  metadata: { ...store.messages[sessionId]?.find(m => m.id === assistantMessageId)?.metadata, slideData: data.slideData },
+                });
+              }
+              
+              // Handle completion with tool info
+              if (data.done && data.tool_used) {
+                const store = useAppStore.getState();
+                store.updateMessage(sessionId, assistantMessageId, {
+                  metadata: { ...store.messages[sessionId]?.find(m => m.id === assistantMessageId)?.metadata, toolUsed: data.tool_used },
+                });
+              }
             } catch (e) {
               // Skip non-JSON lines
             }
@@ -205,7 +234,7 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, sessionId, settings.language, user?.id, addMessage, setIsLoading, updateSession, sessions, sessionMessages.length]);
+  }, [input, isLoading, sessionId, settings.language, user?.id, addMessage, setIsLoading, updateSession, sessions, sessionMessages.length, selectedTool, selectedImage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -231,6 +260,10 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ChatExport 
+            messages={sessionMessages} 
+            sessionTitle={sessions.find(s => s.id === sessionId)?.title || 'Chat Export'} 
+          />
           <VoiceControl
             onTranscript={handleTranscript}
             isListening={isListening}
@@ -267,7 +300,26 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
         {showFileUpload && (
           <FileUpload onClose={() => setShowFileUpload(false)} />
         )}
+        
+        {/* Image Preview */}
+        {selectedImage && (
+          <ImagePreviewCompact 
+            preview={selectedImage.preview} 
+            onRemove={() => setSelectedImage(null)} 
+          />
+        )}
+        
         <div className="flex items-end gap-2">
+          {/* Tool Selector */}
+          <ToolSelector selectedTool={selectedTool} onToolChange={setSelectedTool} />
+          
+          {/* Image Upload */}
+          <ImageUpload
+            onImageSelect={setSelectedImage}
+            selectedImage={selectedImage}
+            onClear={() => setSelectedImage(null)}
+          />
+          
           <button
             onClick={() => setShowFileUpload(!showFileUpload)}
             className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -281,7 +333,15 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask me anything about your studies..."
+              placeholder={
+                selectedTool === 'report' 
+                  ? 'Describe the report you want to generate...'
+                  : selectedTool === 'presentation'
+                  ? 'Describe the presentation you want to create...'
+                  : selectedImage
+                  ? 'Ask about this image...'
+                  : 'Ask me anything about your studies...'
+              }
               className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
               rows={1}
               style={{ minHeight: '48px', maxHeight: '200px' }}
@@ -300,6 +360,9 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
           </button>
         </div>
         <p className="text-xs text-gray-400 mt-2 text-center">
+          {selectedTool === 'auto' && '✨ AI auto-selects the best tool • '}
+          {selectedTool === 'report' && '📄 Report mode • '}
+          {selectedTool === 'presentation' && '📊 Presentation mode • '}
           AI Tutor can make mistakes. Verify important information.
         </p>
       </div>

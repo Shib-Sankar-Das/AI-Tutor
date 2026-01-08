@@ -16,6 +16,45 @@ import sys
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
+# Helper function to parse presentation slides from LLM response
+def parse_presentation_slides(content: str):
+    """Parse the LLM response into structured slide data."""
+    slides = []
+    import re
+    
+    # Split by slide markers
+    slide_pattern = r'---SLIDE\s*\d*---\s*(.*?)---END SLIDE---'
+    matches = re.findall(slide_pattern, content, re.DOTALL | re.IGNORECASE)
+    
+    for i, match in enumerate(matches):
+        slide = {
+            "title": "",
+            "body": "",
+            "imagePrompt": ""
+        }
+        
+        lines = match.strip().split('\n')
+        body_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if line.lower().startswith('title:'):
+                slide["title"] = line[6:].strip()
+            elif line.lower().startswith('image suggestion:') or line.lower().startswith('image:'):
+                slide["imagePrompt"] = line.split(':', 1)[1].strip()
+            elif line.lower().startswith('content:'):
+                continue  # Skip the "Content:" header
+            elif line:
+                body_lines.append(line)
+        
+        slide["body"] = '\n'.join(body_lines)
+        
+        if slide["title"] or slide["body"]:
+            slides.append(slide)
+    
+    return slides if slides else None
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Agentic AI Tutor API",
@@ -34,12 +73,18 @@ app.add_middleware(
 
 
 # Request/Response Models
+class ImageData(BaseModel):
+    base64: str
+    mimeType: str
+
 class ChatRequest(BaseModel):
     message: str
     thread_id: str
     session_id: Optional[str] = None
     language: str = "en"
     user_id: Optional[str] = None
+    tool: Optional[str] = "auto"  # auto, chat, report, presentation
+    image: Optional[ImageData] = None
 
 
 class FeedbackRequest(BaseModel):
@@ -132,6 +177,7 @@ async def chat(request: ChatRequest):
     """
     Main chat endpoint - uses Hugging Face Inference API with Gemma-3-27b-it.
     100% FREE with unlimited requests!
+    Supports tools: auto, chat, report, presentation
     """
     try:
         # Check API key first
@@ -140,14 +186,19 @@ async def chat(request: ChatRequest):
             raise HTTPException(status_code=500, detail="HUGGINGFACE_API_KEY not configured. Get a free token at huggingface.co/settings/tokens")
         
         # Lazy import
-        from agents.supervisor import call_huggingface_llm, supervisor_node
+        from agents.supervisor import call_huggingface_llm, supervisor_node, auto_select_tool
         from agents.supervisor import load_memory_context, save_interaction_memory
         
         user_id = request.user_id or "anonymous"
         session_id = request.session_id or request.thread_id
+        selected_tool = request.tool or "auto"
         
         # Load memory context (no LLM calls, just database)
         memory_data = await load_memory_context(user_id, session_id, request.message)
+        
+        # Auto-select tool if needed
+        if selected_tool == "auto":
+            selected_tool = auto_select_tool(request.message)
         
         # Build state
         state = {
@@ -164,28 +215,53 @@ async def chat(request: ChatRequest):
             "effective_strategies": memory_data.get("effective_strategies", []),
             "current_topic": memory_data.get("current_topic"),
             "extracted_facts": [],
+            "selected_tool": selected_tool,
+            "has_image": request.image is not None,
         }
         
         async def event_generator():
             """Generate SSE events with Hugging Face Gemma-3-27b-it"""
             try:
-                # Step 1: Route using pattern matching (NO LLM call)
-                state_after_routing = supervisor_node(state)
-                next_agent = state_after_routing.get("next_step", "tutor")
+                yield f"data: {json.dumps({'status': 'routing', 'tool': selected_tool})}\n\n"
                 
-                yield f"data: {json.dumps({'status': 'routing', 'agent': next_agent})}\n\n"
-                
-                # Step 2: Build the prompt based on agent type
-                agent_prompts = {
-                    "tutor": "You are a helpful AI tutor. Explain concepts clearly and provide examples when helpful. Be encouraging and patient.",
-                    "rag": "You are an AI assistant that answers questions based on provided context. Be accurate and cite sources when possible.",
-                    "visual": "You are an AI assistant that helps create visual explanations. Describe diagrams, charts, or visual aids that would help explain the concept.",
-                    "presentation": "You are an AI assistant that helps create presentations. Structure content with clear headings, bullet points, and key takeaways.",
-                    "feynman": "You are an AI tutor using the Feynman technique. Explain concepts in the simplest possible terms, as if teaching a beginner.",
-                    "advocate": "You are a devil's advocate AI. Challenge assumptions and present alternative viewpoints to deepen understanding.",
+                # Build the prompt based on selected tool
+                tool_prompts = {
+                    "chat": """You are a helpful AI tutor. Explain concepts clearly and provide examples when helpful. 
+Be encouraging and patient. Use markdown formatting for better readability.""",
+                    
+                    "report": """You are an expert report writer. Generate comprehensive, well-structured reports.
+IMPORTANT GUIDELINES:
+- Write detailed, multi-section reports with proper headings (## for main sections, ### for subsections)
+- Include an executive summary, introduction, main content sections, and conclusion
+- Use bullet points and numbered lists for clarity
+- Provide data, examples, and evidence where relevant
+- Make the report at least 1000 words for comprehensive coverage
+- Use proper markdown formatting throughout
+- End with key takeaways or recommendations""",
+                    
+                    "presentation": """You are an expert presentation designer. Create detailed slide content for presentations.
+IMPORTANT: Structure your response as a complete presentation with multiple slides.
+FORMAT EACH SLIDE AS:
+---SLIDE [number]---
+Title: [Slide Title]
+Content:
+- [Bullet point 1]
+- [Bullet point 2]
+- [Bullet point 3]
+Image Suggestion: [Brief description for an image/icon that would enhance this slide]
+---END SLIDE---
+
+Include at minimum:
+1. Title slide
+2. Overview/Agenda slide
+3. 4-8 content slides with detailed information
+4. Summary/Conclusion slide
+5. Q&A or Thank You slide
+
+Make the content engaging, informative, and visually descriptive.""",
                 }
                 
-                system_prompt = agent_prompts.get(next_agent, agent_prompts["tutor"])
+                system_prompt = tool_prompts.get(selected_tool, tool_prompts["chat"])
                 
                 # Add memory context if available
                 if state.get("memory_context"):
@@ -199,8 +275,20 @@ async def chat(request: ChatRequest):
                 
                 yield f"data: {json.dumps({'status': 'generating'})}\n\n"
                 
+                # Adjust max tokens based on tool type
+                max_tokens = 2048
+                if selected_tool == "report":
+                    max_tokens = 4096  # Longer for reports
+                elif selected_tool == "presentation":
+                    max_tokens = 3072  # Medium for presentations
+                
                 # Call Hugging Face API (ONE call)
-                response_content = await call_huggingface_llm(hf_messages)
+                response_content = await call_huggingface_llm(hf_messages, max_tokens=max_tokens)
+                
+                # Parse presentation slides if applicable
+                slide_data = None
+                if selected_tool == "presentation" and "---SLIDE" in response_content:
+                    slide_data = parse_presentation_slides(response_content)
                 
                 # Stream the complete response as tokens (simulated streaming)
                 words = response_content.split(' ')
@@ -221,7 +309,12 @@ async def chat(request: ChatRequest):
                 except Exception as mem_error:
                     print(f"Memory save error (non-critical): {mem_error}")
                 
-                yield f"data: {json.dumps({'done': True, 'agent_used': next_agent})}\n\n"
+                # Send completion with metadata
+                completion_data = {'done': True, 'tool_used': selected_tool}
+                if slide_data:
+                    completion_data['slideData'] = slide_data
+                
+                yield f"data: {json.dumps(completion_data)}\n\n"
                 
             except Exception as e:
                 error_msg = str(e)
