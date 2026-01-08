@@ -198,6 +198,38 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
       pres.subject = 'Educational Content';
       pres.company = 'AI Tutor';
 
+      // Pre-generate all images in parallel (much faster)
+      const imagePromises: Promise<{ index: number; data: string | null }>[] = [];
+      for (let i = 1; i < slides.length; i++) {
+        const slideData = slides[i];
+        if (hasValidImage(slideData.imagePrompt)) {
+          imagePromises.push(
+            fetch('/api/generate-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                prompt: `${slideData.imagePrompt}, professional presentation graphic, clean design, corporate style, minimalist`,
+                negative_prompt: 'text, words, letters, blurry, low quality',
+                width: 512,
+                height: 384,
+                steps: 20,
+                guidance_scale: 4.0
+              })
+            })
+              .then(res => res.ok ? res.json() : null)
+              .then(data => ({ index: i, data: data?.image_base64 || null }))
+              .catch(() => ({ index: i, data: null }))
+          );
+        }
+      }
+
+      // Wait for all images to generate
+      const generatedImages = await Promise.all(imagePromises);
+      const imageMap = new Map<number, string>();
+      generatedImages.forEach(({ index, data }) => {
+        if (data) imageMap.set(index, data);
+      });
+
       // Modern color palette
       const colors = {
         primary: '2563EB',      // Blue
@@ -245,20 +277,30 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
             y: 1.8,
             w: 9,
             h: 1.5,
-            fontSize: 48,
+            fontSize: 44,
             color: colors.white,
             bold: true,
             align: 'center',
             fontFace: 'Arial',
           });
           
-          // Subtitle/body
+          // Subtitle/body - show full subtitle text
           if (slideData.body) {
-            slide.addText(slideData.body.split('\n')[0] || '', {
+            // Clean the body text and join all lines for subtitle
+            const subtitleText = slideData.body
+              .replace(/\*\*([^*]+)\*\*/g, '$1')
+              .replace(/\*([^*]+)\*/g, '$1')
+              .replace(/^[-•*]\s*/gm, '')
+              .split('\n')
+              .filter(l => l.trim())
+              .join(' ')
+              .trim();
+            
+            slide.addText(subtitleText, {
               x: 0.5,
               y: 3.3,
               w: 9,
-              h: 0.8,
+              h: 1.0,
               fontSize: 22,
               color: colors.light,
               align: 'center',
@@ -269,7 +311,7 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
           // Date/presenter line
           slide.addText(new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }), {
             x: 0.5,
-            y: 4.8,
+            y: 4.6,
             w: 9,
             h: 0.4,
             fontSize: 14,
@@ -311,8 +353,8 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
             },
           }));
 
-          // Determine layout based on image
-          const hasImage = slideData.imagePrompt && slideData.imagePrompt.length > 5;
+          // Determine layout based on whether we have a pre-generated image
+          const hasImage = imageMap.has(i);
           
           slide.addText(bulletPoints, {
             x: 0.5,
@@ -322,38 +364,16 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
             valign: 'top',
           });
 
-          // Add image using SD 3.5 API if image prompt exists
+          // Add pre-generated image if available
           if (hasImage) {
-            try {
-              // Generate image using Stable Diffusion 3.5 via API
-              const response = await fetch('/api/generate-image', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  prompt: `${slideData.imagePrompt}, professional presentation graphic, clean design, corporate style, minimalist`,
-                  negative_prompt: 'text, words, letters, blurry, low quality',
-                  width: 512,
-                  height: 384,
-                  steps: 20,
-                  guidance_scale: 4.0
-                })
-              });
-              
-              if (response.ok) {
-                const imageData = await response.json();
-                slide.addImage({
-                  data: `data:image/jpeg;base64,${imageData.image_base64}`,
-                  x: 6.2,
-                  y: 1.2,
-                  w: 3.5,
-                  h: 2.6,
-                  rounding: true,
-                });
-              }
-            } catch (imgError) {
-              console.log('Image generation skipped:', imgError);
-              // Continue without image
-            }
+            slide.addImage({
+              data: `data:image/jpeg;base64,${imageMap.get(i)}`,
+              x: 6.2,
+              y: 1.2,
+              w: 3.5,
+              h: 2.6,
+              rounding: true,
+            });
           }
 
           // Slide number
@@ -579,7 +599,9 @@ export function SlideDeck({ slides, onClose }: SlideDeckProps) {
           {currentSlide === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <h1 className="text-3xl font-bold mb-4">{cleanMarkdown(slide.title)}</h1>
-              <p className="text-lg opacity-90">{cleanMarkdown(slide.body.split('\n')[0] || '')}</p>
+              <p className="text-lg opacity-90 max-w-2xl">
+                {cleanMarkdown(slide.body.replace(/^[-•*]\s*/gm, '').split('\n').filter(l => l.trim()).join(' '))}
+              </p>
               <div className="mt-8 text-sm opacity-70">
                 {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
               </div>

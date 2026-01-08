@@ -48,6 +48,7 @@ def parse_presentation_slides(content: str):
         lines = match.strip().split('\n')
         body_lines = []
         in_content = False
+        is_title_slide = (i == 0)  # First slide is always title slide
         
         for line in lines:
             line_stripped = line.strip()
@@ -69,15 +70,29 @@ def parse_presentation_slides(content: str):
                 # Check if there's content on the same line
                 rest = line_stripped[8:].strip()
                 if rest:
-                    body_lines.append('• ' + clean_line(rest) if not rest.startswith('•') else clean_line(rest))
+                    cleaned = clean_line(rest)
+                    # For title slide, don't add bullets to subtitle
+                    if is_title_slide:
+                        body_lines.append(cleaned)
+                    else:
+                        body_lines.append('• ' + cleaned if not cleaned.startswith('•') else cleaned)
             # Body content lines
             elif line_stripped and in_content:
                 cleaned = clean_line(line_stripped)
                 if cleaned:
-                    # Ensure bullet point format
-                    if cleaned.startswith(('•', '-', '*')):
-                        cleaned = '• ' + cleaned.lstrip('•-* ')
+                    # For title slide, preserve as subtitle (no bullets)
+                    if is_title_slide:
+                        # Don't add bullet markers to title slide content
+                        if cleaned.startswith(('•', '-', '*')):
+                            cleaned = cleaned.lstrip('•-* ').strip()
+                        body_lines.append(cleaned)
                     else:
+                        # For content slides, ensure bullet format
+                        if cleaned.startswith(('•', '-', '*')):
+                            cleaned = '• ' + cleaned.lstrip('•-* ')
+                        else:
+                            cleaned = '• ' + cleaned
+                        body_lines.append(cleaned)
                         cleaned = '• ' + cleaned
                     body_lines.append(cleaned)
             elif line_stripped and not line_lower.startswith(('title:', 'image', 'content:')):
@@ -500,51 +515,56 @@ IMPORTANT GUIDELINES:
 CRITICAL: Follow this EXACT format for EVERY slide:
 
 ---SLIDE 1---
-Title: [Main Presentation Title]
+Title: [The exact topic/title from user's request]
 Content:
-[A brief subtitle or tagline for the presentation]
-Image: [Only if user specifically requested images for title slide]
+[A descriptive subtitle that summarizes the presentation - this appears under the main title]
 ---END SLIDE---
 
 ---SLIDE 2---
-Title: [Overview/Agenda]
+Title: Overview
 Content:
-• First topic to be covered
-• Second topic to be covered
-• Third topic to be covered
-• Fourth topic to be covered
+• First main topic to be covered
+• Second main topic to be covered  
+• Third main topic to be covered
+• Fourth main topic to be covered
 ---END SLIDE---
 
 ---SLIDE 3---
 Title: [First Main Topic]
 Content:
-• Key point about this topic with specific details
-• Another important aspect to understand
-• Supporting information or example
-• Additional relevant point
-• Conclusion or takeaway for this topic
-Image: [Only if user asked for images - describe specific visual]
+• Key point with specific details and facts
+• Another important aspect with examples
+• Supporting information or data point
+• Additional relevant detail or statistic
+• Summary or takeaway for this topic
 ---END SLIDE---
 
-[Continue with 4-6 more content slides following the same format]
+[Continue with more content slides...]
 
-CONTENT RULES:
-1. Use • for ALL bullet points (not -, not *)
-2. Each bullet should be a complete thought (10-20 words)
-3. Include specific facts, data, examples, or details
-4. NO markdown formatting (no **, no ##, no ``` anywhere)
-5. Make content educational and substantive
-6. Follow the user's topic and requirements exactly
-7. Don't skip or summarize information from the user's request
+---SLIDE [last]---
+Title: Summary & Key Takeaways
+Content:
+• Main conclusion point 1
+• Main conclusion point 2
+• Main conclusion point 3
+• Call to action or next steps
+---END SLIDE---
+
+CONTENT RULES - VERY IMPORTANT:
+1. SLIDE 1 (Title Slide): Title should be the EXACT topic from user's request. Content should be ONE LINE subtitle only.
+2. Use • (bullet character) for ALL bullet points in content slides
+3. Each bullet should be 10-20 words with specific facts, data, or examples
+4. NO markdown formatting (no **, no ##, no ``` anywhere in slides)
+5. Make content educational, detailed, and substantive
+6. Include ALL information the user mentioned in their prompt
+7. Create 7-10 slides for comprehensive coverage
+8. End with a summary/conclusion slide
 
 IMAGE RULES:
-• Only include "Image:" line if user EXPLICITLY asks for images
-• If user doesn't mention images, omit the Image line entirely
-• If included, describe a specific, professional visual
+• Do NOT include Image: line unless user EXPLICITLY asks for images in their prompt
+• If user asks for images, add: Image: [specific description for that slide]
 
-SLIDE COUNT: Create 7-10 slides minimum for comprehensive coverage.
-
-IMPORTANT: Capture ALL information from the user's prompt. Don't leave out any points they mentioned.""",
+REMEMBER: The title slide's Content field should be a SINGLE LINE subtitle, not bullet points.""",
                 }
                 
                 system_prompt = tool_prompts.get(selected_tool, tool_prompts["chat"])
