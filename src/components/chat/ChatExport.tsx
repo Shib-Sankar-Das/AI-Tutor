@@ -344,12 +344,20 @@ export function ChatExport({ messages, sessionTitle = 'Chat Export' }: ChatExpor
         const isUser = msg.role === 'user';
 
         // Role header with colored background
-        pdf.setFillColor(isUser ? 239, 246, 255 : 240, 253, 244);
+        if (isUser) {
+          pdf.setFillColor(239, 246, 255);
+        } else {
+          pdf.setFillColor(240, 253, 244);
+        }
         pdf.roundedRect(margin, yPos - 4, contentWidth, 8, 2, 2, 'F');
         
         pdf.setFontSize(11);
         pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(isUser ? 37, 99, 235 : 22, 163, 74);
+        if (isUser) {
+          pdf.setTextColor(37, 99, 235);
+        } else {
+          pdf.setTextColor(22, 163, 74);
+        }
         pdf.text(`${role}`, margin + 3, yPos);
         
         pdf.setFont('helvetica', 'normal');
