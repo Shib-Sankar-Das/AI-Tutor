@@ -9,9 +9,10 @@ import {
   Sparkles,
   ImageIcon,
   Wand2,
+  GitBranch,
 } from 'lucide-react';
 
-export type ToolType = 'auto' | 'chat' | 'report' | 'presentation' | 'image';
+export type ToolType = 'auto' | 'chat' | 'report' | 'presentation' | 'image' | 'diagram';
 
 interface ToolSelectorProps {
   selectedTool: ToolType;
@@ -46,10 +47,18 @@ const tools = [
   {
     id: 'presentation' as ToolType,
     name: 'PPT',
-    description: 'Create beautiful presentations',
+    description: 'Create beautiful presentations with SD 3.5',
     icon: Presentation,
     color: 'text-orange-600 dark:text-orange-400',
     bgColor: 'bg-orange-100 dark:bg-orange-900/30',
+  },
+  {
+    id: 'diagram' as ToolType,
+    name: 'Diagram',
+    description: 'Create SVG diagrams & flowcharts',
+    icon: GitBranch,
+    color: 'text-cyan-600 dark:text-cyan-400',
+    bgColor: 'bg-cyan-100 dark:bg-cyan-900/30',
   },
   {
     id: 'image' as ToolType,

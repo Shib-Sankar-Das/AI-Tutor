@@ -210,14 +210,24 @@ def auto_select_tool(message: str) -> str:
     """
     message_lower = message.lower()
     
+    # Diagram patterns (check first - more specific)
+    diagram_patterns = [
+        "diagram", "flowchart", "flow chart", "block diagram",
+        "process diagram", "svg", "chart", "hierarchy",
+        "org chart", "organization chart", "tree diagram",
+        "sequence diagram", "architecture diagram", "system diagram",
+        "create a diagram", "draw a diagram", "make a flowchart",
+        "visualize the process", "show the flow", "workflow diagram"
+    ]
+    
     # Image generation patterns
     image_patterns = [
-        "generate image", "create image", "draw", "make an image",
+        "generate image", "create image", "draw a picture", "make an image",
         "generate a picture", "create a picture", "illustrate",
         "generate art", "create art", "make art", "artwork",
         "image of", "picture of", "photo of", "painting of",
-        "visualize", "render", "design an image", "generate visual",
-        "stable diffusion", "ai image", "ai art"
+        "render", "design an image", "generate visual",
+        "stable diffusion", "ai image", "ai art", "realistic image"
     ]
     
     # Report patterns
@@ -234,6 +244,11 @@ def auto_select_tool(message: str) -> str:
         "create slides", "make a presentation", "design slides",
         "keynote", "pitch deck", "slideshow"
     ]
+    
+    # Check for diagram (most specific first)
+    for pattern in diagram_patterns:
+        if pattern in message_lower:
+            return "diagram"
     
     # Check for image generation
     for pattern in image_patterns:

@@ -202,6 +202,18 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
                 });
               }
               
+              // Handle diagram SVG
+              if (data.diagramSvg) {
+                const store = useAppStore.getState();
+                store.updateMessage(sessionId, assistantMessageId, {
+                  metadata: { 
+                    ...store.messages[sessionId]?.find(m => m.id === assistantMessageId)?.metadata, 
+                    diagramSvg: data.diagramSvg,
+                    diagramTitle: data.diagramTitle || 'Diagram'
+                  },
+                });
+              }
+              
               // Handle completion with tool info
               if (data.done && data.tool_used) {
                 const store = useAppStore.getState();

@@ -16,6 +16,8 @@ export interface Message {
     generatedImage?: string;  // Base64 data URL for SD 3.5 generated images
     imagePrompt?: string;  // Prompt used to generate the image
     imageModel?: string;  // Model used to generate the image
+    diagramSvg?: string;  // SVG code for diagrams
+    diagramTitle?: string;  // Title for the diagram
   };
 }
 

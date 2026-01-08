@@ -19,13 +19,27 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Helper function to parse presentation slides from LLM response
 def parse_presentation_slides(content: str):
-    """Parse the LLM response into structured slide data."""
+    """Parse the LLM response into structured slide data with clean text."""
     slides = []
     import re
     
     # Split by slide markers
     slide_pattern = r'---SLIDE\s*\d*---\s*(.*?)---END SLIDE---'
     matches = re.findall(slide_pattern, content, re.DOTALL | re.IGNORECASE)
+    
+    def clean_text(text: str) -> str:
+        """Remove markdown formatting from text."""
+        # Remove bold markers
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+        text = re.sub(r'__([^_]+)__', r'\1', text)
+        # Remove italic markers
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)
+        text = re.sub(r'_([^_]+)_', r'\1', text)
+        # Remove headers
+        text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
+        # Clean up bullet points - standardize to •
+        text = re.sub(r'^[-*]\s+', '• ', text, flags=re.MULTILINE)
+        return text.strip()
     
     for i, match in enumerate(matches):
         slide = {
@@ -40,13 +54,16 @@ def parse_presentation_slides(content: str):
         for line in lines:
             line = line.strip()
             if line.lower().startswith('title:'):
-                slide["title"] = line[6:].strip()
+                slide["title"] = clean_text(line[6:].strip())
             elif line.lower().startswith('image suggestion:') or line.lower().startswith('image:'):
-                slide["imagePrompt"] = line.split(':', 1)[1].strip()
+                # Only capture image prompt if it has meaningful content
+                img_prompt = line.split(':', 1)[1].strip()
+                if img_prompt and len(img_prompt) > 5:
+                    slide["imagePrompt"] = img_prompt
             elif line.lower().startswith('content:'):
                 continue  # Skip the "Content:" header
             elif line:
-                body_lines.append(line)
+                body_lines.append(clean_text(line))
         
         slide["body"] = '\n'.join(body_lines)
         
@@ -360,6 +377,86 @@ Your image has been generated and is displayed below. You can right-click to sav
                             yield f"data: {json.dumps({'error': f'❌ Image generation failed: {error_msg}'})}\n\n"
                         return
                 
+                # Handle Diagram Generation Tool
+                if selected_tool == "diagram":
+                    yield f"data: {json.dumps({'status': 'generating_diagram'})}\n\n"
+                    
+                    diagram_prompt = """You are an expert diagram creator. Generate SVG code for professional diagrams.
+
+IMPORTANT RULES:
+1. Output ONLY valid SVG code - no markdown, no explanation before the SVG
+2. Start directly with <svg> tag and end with </svg>
+3. Use a clean, modern design with proper spacing
+4. Include appropriate colors (use a professional palette)
+5. Add text labels inside the diagram
+6. Use rounded rectangles, circles, and arrows for flowcharts
+7. Ensure the diagram is readable and well-organized
+
+SVG GUIDELINES:
+- Set viewBox for responsive sizing (e.g., viewBox="0 0 800 600")
+- Use fill colors like #3B82F6 (blue), #10B981 (green), #F59E0B (amber), #EF4444 (red), #8B5CF6 (purple)
+- Use stroke for borders and arrows
+- Include <defs> for arrow markers if needed
+- Add drop shadows using <filter> for depth
+- Use <text> elements with proper font-family (Arial, sans-serif)
+
+DIAGRAM TYPES:
+- Flowcharts: Use rectangles connected by arrows
+- Block diagrams: Use rounded rectangles with labels
+- Process diagrams: Show steps with arrows
+- Hierarchy: Use tree structure
+- Comparison: Side-by-side boxes
+
+Generate a professional, visually appealing diagram based on the user's request."""
+
+                    hf_messages = [
+                        {"role": "system", "content": diagram_prompt},
+                        {"role": "user", "content": f"Create an SVG diagram for: {request.message}"}
+                    ]
+                    
+                    try:
+                        response_content = await call_huggingface_llm(hf_messages, max_tokens=3072)
+                        
+                        # Extract SVG from response
+                        import re
+                        svg_match = re.search(r'<svg[\s\S]*?</svg>', response_content, re.IGNORECASE)
+                        
+                        if svg_match:
+                            svg_code = svg_match.group(0)
+                            
+                            # Send explanation text first
+                            explanation = f"""📊 **Diagram Generated!**
+
+Here's your SVG diagram for: **{request.message}**
+
+You can:
+- **Preview** the diagram visually
+- **Edit** the code to customize
+- **Download** as SVG, XML, or PNG
+- **Copy** the code to use elsewhere
+
+"""
+                            words = explanation.split(' ')
+                            for i, word in enumerate(words):
+                                token = word + (' ' if i < len(words) - 1 else '')
+                                yield f"data: {json.dumps({'token': token})}\n\n"
+                            
+                            # Send diagram data
+                            yield f"data: {json.dumps({'diagramSvg': svg_code, 'diagramTitle': request.message[:50]})}\n\n"
+                            yield f"data: {json.dumps({'done': True, 'tool_used': 'diagram'})}\n\n"
+                        else:
+                            # No SVG found, return the raw response
+                            words = response_content.split(' ')
+                            for i, word in enumerate(words):
+                                token = word + (' ' if i < len(words) - 1 else '')
+                                yield f"data: {json.dumps({'token': token})}\n\n"
+                            yield f"data: {json.dumps({'done': True, 'tool_used': 'diagram'})}\n\n"
+                        return
+                        
+                    except Exception as diag_error:
+                        yield f"data: {json.dumps({'error': f'❌ Diagram generation failed: {str(diag_error)}'})}\n\n"
+                        return
+                
                 # Build the prompt based on selected tool
                 tool_prompts = {
                     "chat": """You are a helpful AI tutor. Explain concepts clearly and provide examples when helpful. 
@@ -375,26 +472,41 @@ IMPORTANT GUIDELINES:
 - Use proper markdown formatting throughout
 - End with key takeaways or recommendations""",
                     
-                    "presentation": """You are an expert presentation designer. Create detailed slide content for presentations.
-IMPORTANT: Structure your response as a complete presentation with multiple slides.
-FORMAT EACH SLIDE AS:
+                    "presentation": """You are an expert presentation designer creating beautiful, professional presentations.
+
+CRITICAL FORMATTING RULES - Follow EXACTLY:
+1. Structure each slide with this EXACT format (no markdown inside slides):
+
 ---SLIDE [number]---
-Title: [Slide Title]
+Title: [Clear, Concise Slide Title]
 Content:
-- [Bullet point 1]
-- [Bullet point 2]
-- [Bullet point 3]
-Image Suggestion: [Brief description for an image/icon that would enhance this slide]
+• [Point 1 - plain text, no asterisks or markdown]
+• [Point 2 - plain text]
+• [Point 3 - plain text]
+• [Point 4 if needed]
+Image: [ONLY if specifically relevant - describe an image that would enhance THIS slide]
 ---END SLIDE---
 
-Include at minimum:
-1. Title slide
-2. Overview/Agenda slide
-3. 4-8 content slides with detailed information
-4. Summary/Conclusion slide
-5. Q&A or Thank You slide
+CONTENT GUIDELINES:
+• Use bullet points (•) not dashes or asterisks
+• Keep bullet points concise (max 10-12 words each)
+• NO markdown formatting (no **, no ##, no ``` inside slides)
+• 3-5 bullet points per slide maximum
+• Use clear, professional language
 
-Make the content engaging, informative, and visually descriptive.""",
+IMAGE RULES - IMPORTANT:
+• Only include "Image:" line if user specifically asks for images OR if it greatly enhances understanding
+• If no image needed, omit the "Image:" line entirely
+• Image descriptions should be specific and detailed for AI generation
+
+REQUIRED SLIDES:
+1. Title slide with topic and subtitle
+2. Overview/Agenda (what will be covered)
+3. 4-6 content slides with key information
+4. Summary/Key Takeaways
+5. Thank You / Q&A slide
+
+Make content engaging, educational, and visually organized.""",
                 }
                 
                 system_prompt = tool_prompts.get(selected_tool, tool_prompts["chat"])

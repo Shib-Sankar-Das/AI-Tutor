@@ -2,10 +2,11 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { User, Bot, Volume2, Download, Image as ImageIcon, Calendar, FileText, Target, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { User, Bot, Volume2, Download, Image as ImageIcon, Calendar, FileText, Target, ThumbsUp, ThumbsDown, GitBranch } from 'lucide-react';
 import { Message, useAppStore } from '@/lib/store';
 import { useState } from 'react';
 import { DocumentExport } from './DocumentExport';
+import { DiagramViewer, extractSVGFromContent } from './DiagramViewer';
 import { GoogleCalendar, getGoogleAccessToken } from '@/lib/google-auth';
 import { showToast } from '@/components/ui/Toaster';
 
@@ -28,8 +29,12 @@ export function ChatMessage({ message, onOpenWorkspace, sessionId }: ChatMessage
   const hasSlides = message.metadata?.slideData;
   const hasImage = message.metadata?.imageUrl || message.content.includes('image.pollinations.ai');
   const hasGeneratedImage = message.metadata?.generatedImage;
+  const hasDiagram = message.metadata?.diagramSvg || (!isUser && extractSVGFromContent(message.content));
   const hasDocument = message.metadata?.documentContent;
   const hasCalendarEvent = message.metadata?.calendarEvent;
+
+  // Get diagram SVG
+  const diagramSvg = message.metadata?.diagramSvg || extractSVGFromContent(message.content);
 
   // Extract Pollinations image URLs from markdown
   const extractImageUrl = (content: string): string | null => {
@@ -253,6 +258,16 @@ export function ChatMessage({ message, onOpenWorkspace, sessionId }: ChatMessage
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     🎨 Generated with {message.metadata?.imageModel || 'Stable Diffusion 3.5 Large'}
                   </p>
+                </div>
+              )}
+              
+              {/* Display SVG Diagram */}
+              {hasDiagram && diagramSvg && (
+                <div className="mt-4">
+                  <DiagramViewer 
+                    svgCode={diagramSvg} 
+                    title={message.metadata?.diagramTitle || 'Diagram'}
+                  />
                 </div>
               )}
             </div>
