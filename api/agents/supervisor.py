@@ -68,11 +68,17 @@ class AgentState(TypedDict):
     extracted_facts: List[Dict[str, str]]  # Facts to store after interaction
 
 
-# Initialize Gemini LLM
-def get_llm():
-    """Get the Gemini 2.5 Pro model instance"""
+# Initialize Gemini LLM with fallback for rate limits
+def get_llm(model: str = None):
+    """
+    Get the Gemini model instance.
+    Uses gemini-2.0-flash by default for better rate limits on free tier.
+    gemini-2.5-pro has very strict limits (2 RPM, 1000 tokens/min).
+    gemini-2.0-flash has higher limits on free tier.
+    """
+    model_name = model or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     return ChatGoogleGenerativeAI(
-        model="gemini-2.5-pro",
+        model=model_name,
         google_api_key=os.getenv("GOOGLE_API_KEY"),
         temperature=0.7,
         convert_system_message_to_human=True,
@@ -166,60 +172,80 @@ async def save_interaction_memory(
 def supervisor_node(state: AgentState) -> AgentState:
     """
     The Supervisor analyzes user intent and routes to the appropriate agent.
-    Acts as the central coordinator of the multi-agent system.
-    Now enhanced with memory context for better routing decisions.
+    Uses efficient pattern matching instead of LLM to save API quota.
     """
-    llm = get_llm()
-    
     messages = state["messages"]
     last_message = get_message_content(messages[-1]) if messages else ""
+    last_message_lower = last_message.lower()
     
-    memory_context = state.get("memory_context", "")
-    user_profile = state.get("user_profile", {})
+    # Pattern-based routing to save LLM API calls
+    agent_name = "tutor"  # Default
     
-    # Build context-aware classification prompt
-    profile_hints = ""
-    if user_profile:
-        if user_profile.get("learning_style"):
-            profile_hints += f"\nUser's learning style: {', '.join(user_profile['learning_style'])}"
-        if user_profile.get("interests"):
-            profile_hints += f"\nUser's interests: {', '.join(user_profile['interests'][:3])}"
+    # RAG patterns - questions about uploaded documents
+    rag_patterns = [
+        "my document", "the document", "uploaded file", "uploaded document",
+        "the textbook", "my textbook", "this pdf", "the pdf", "my file",
+        "from the document", "in the document", "according to the document",
+        "based on the document", "what does the document say", "the file says"
+    ]
     
-    # Classification prompt
-    system_prompt = f"""You are a supervisor AI that classifies user requests. 
-    Based on the user's message and their profile, determine which specialized agent should handle it.
+    # Visual patterns - requests for images/diagrams
+    visual_patterns = [
+        "show me", "draw", "diagram", "image", "picture", "visualize",
+        "visual", "illustration", "chart", "graph", "sketch", "figure",
+        "can you show", "create an image", "make a diagram", "generate image"
+    ]
     
-    Available agents:
-    - tutor: For general educational questions, explanations, and Socratic teaching
-    - rag: For questions about uploaded documents or specific textbook content
-    - visual: For requests that need images, diagrams, or visual explanations
-    - presentation: For requests to create slides or presentations
-    - feynman: When user wants to explain a concept (reverse teaching mode)
-    - advocate: For debate/critical thinking exercises on controversial topics
+    # Presentation patterns - slide creation
+    presentation_patterns = [
+        "presentation", "slides", "slide deck", "powerpoint", "ppt",
+        "create slides", "make slides", "make a presentation",
+        "create a presentation", "slideshow"
+    ]
     
-    {profile_hints}
+    # Feynman patterns - user wants to explain/teach
+    feynman_patterns = [
+        "let me explain", "i'll explain", "i will explain", "i want to explain",
+        "let me teach", "i'll teach", "i understand it as", "my understanding is",
+        "here's how i see it", "in my words", "can i explain", "test my understanding"
+    ]
     
-    Consider:
-    - If user prefers visual learning and asks about complex topics, consider "visual"
-    - If user mentions "my document", "the textbook", "uploaded file", use "rag"
-    - If user says "let me explain" or "I'll teach you", use "feynman"
-    - If user wants to debate or discuss controversial topics, use "advocate"
+    # Advocate/debate patterns - critical thinking exercises
+    advocate_patterns = [
+        "debate", "argue", "devil's advocate", "counter argument", "play devil",
+        "challenge my", "disagree with", "opposing view", "other side",
+        "what's wrong with", "critique", "critical thinking"
+    ]
     
-    Respond with ONLY ONE of these agent names based on the user's request.
-    If unsure, default to "tutor".
-    """
+    # Check patterns in order of specificity
+    for pattern in rag_patterns:
+        if pattern in last_message_lower:
+            agent_name = "rag"
+            break
     
-    response = llm.invoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"User message: {last_message}")
-    ])
+    if agent_name == "tutor":  # Only check if not already assigned
+        for pattern in presentation_patterns:
+            if pattern in last_message_lower:
+                agent_name = "presentation"
+                break
     
-    # Parse the response to get the agent name
-    agent_name = response.content.strip().lower()
-    valid_agents = ["tutor", "rag", "visual", "presentation", "feynman", "advocate"]
+    if agent_name == "tutor":
+        for pattern in visual_patterns:
+            if pattern in last_message_lower:
+                agent_name = "visual"
+                break
     
-    if agent_name not in valid_agents:
-        agent_name = "tutor"
+    if agent_name == "tutor":
+        for pattern in feynman_patterns:
+            if pattern in last_message_lower:
+                agent_name = "feynman"
+                break
+    
+    if agent_name == "tutor":
+        for pattern in advocate_patterns:
+            if pattern in last_message_lower:
+                agent_name = "advocate"
+                break
     
     state["next_step"] = agent_name
     return state
