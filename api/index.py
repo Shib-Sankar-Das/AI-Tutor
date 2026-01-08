@@ -83,8 +83,17 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     language: str = "en"
     user_id: Optional[str] = None
-    tool: Optional[str] = "auto"  # auto, chat, report, presentation
+    tool: Optional[str] = "auto"  # auto, chat, report, presentation, image
     image: Optional[ImageData] = None
+
+
+class ImageGenerationRequest(BaseModel):
+    prompt: str
+    negative_prompt: Optional[str] = None
+    width: int = 1024
+    height: int = 1024
+    steps: int = 28
+    guidance_scale: float = 4.5
 
 
 class FeedbackRequest(BaseModel):
@@ -164,11 +173,93 @@ async def health_check():
         "service": "agentic-ai-tutor",
         "llm_provider": "huggingface",
         "llm_model": "gemma-3-27b-it",
+        "image_model": "stabilityai/stable-diffusion-3.5-large",
         "huggingface_configured": bool(hf_token),
         "google_api_configured": bool(google_api_key),
         "modules": modules_status,
         "python_version": sys.version,
     }
+
+
+# Image Generation using Stable Diffusion 3.5 Large via Hugging Face
+async def generate_image_sd35(prompt: str, negative_prompt: str = None, width: int = 1024, height: int = 1024, steps: int = 28, guidance_scale: float = 4.5):
+    """
+    Generate an image using Stability AI's Stable Diffusion 3.5 Large via Hugging Face Inference API.
+    Returns base64 encoded image data.
+    """
+    import httpx
+    import base64
+    
+    hf_token = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
+    if not hf_token:
+        raise ValueError("HUGGINGFACE_API_KEY not configured")
+    
+    # Hugging Face Inference API endpoint for SD 3.5 Large
+    api_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-3.5-large"
+    
+    headers = {
+        "Authorization": f"Bearer {hf_token}",
+        "Content-Type": "application/json",
+    }
+    
+    # Build the payload
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "num_inference_steps": steps,
+            "guidance_scale": guidance_scale,
+            "width": width,
+            "height": height,
+        }
+    }
+    
+    if negative_prompt:
+        payload["parameters"]["negative_prompt"] = negative_prompt
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(api_url, headers=headers, json=payload)
+        
+        if response.status_code == 503:
+            # Model is loading, get estimated time
+            data = response.json()
+            estimated_time = data.get("estimated_time", 30)
+            raise Exception(f"Model is loading. Please wait approximately {estimated_time:.0f} seconds and try again.")
+        
+        if response.status_code != 200:
+            error_detail = response.text[:500]
+            raise Exception(f"Image generation failed (HTTP {response.status_code}): {error_detail}")
+        
+        # The response is the raw image bytes
+        image_bytes = response.content
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        
+        return {
+            "image_base64": image_base64,
+            "mime_type": "image/jpeg",
+            "prompt": prompt,
+            "model": "stabilityai/stable-diffusion-3.5-large"
+        }
+
+
+# Image Generation Endpoint
+@app.post("/api/generate-image")
+async def generate_image(request: ImageGenerationRequest):
+    """
+    Generate an image using Stable Diffusion 3.5 Large.
+    Returns base64 encoded image.
+    """
+    try:
+        result = await generate_image_sd35(
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            width=request.width,
+            height=request.height,
+            steps=request.steps,
+            guidance_scale=request.guidance_scale
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Main chat endpoint - uses Hugging Face Gemma-3-27b-it (FREE!)
@@ -223,6 +314,51 @@ async def chat(request: ChatRequest):
             """Generate SSE events with Hugging Face Gemma-3-27b-it"""
             try:
                 yield f"data: {json.dumps({'status': 'routing', 'tool': selected_tool})}\n\n"
+                
+                # Handle Image Generation Tool separately
+                if selected_tool == "image":
+                    yield f"data: {json.dumps({'status': 'generating_image'})}\n\n"
+                    
+                    try:
+                        # Generate the image using SD 3.5
+                        image_result = await generate_image_sd35(
+                            prompt=request.message,
+                            negative_prompt="blurry, low quality, distorted, deformed, ugly, bad anatomy",
+                            width=1024,
+                            height=1024,
+                            steps=28,
+                            guidance_scale=4.5
+                        )
+                        
+                        # Send a nice response with the image
+                        response_text = f"""✨ **Image Generated Successfully!**
+
+**Prompt:** {request.message}
+
+**Model:** Stable Diffusion 3.5 Large (via Hugging Face)
+
+Your image has been generated and is displayed below. You can right-click to save it."""
+                        
+                        # Stream the text response
+                        words = response_text.split(' ')
+                        for i, word in enumerate(words):
+                            token = word + (' ' if i < len(words) - 1 else '')
+                            yield f"data: {json.dumps({'token': token})}\n\n"
+                        
+                        # Send the image data
+                        yield f"data: {json.dumps({'generatedImage': image_result})}\n\n"
+                        
+                        # Send completion
+                        yield f"data: {json.dumps({'done': True, 'tool_used': 'image'})}\n\n"
+                        return
+                        
+                    except Exception as img_error:
+                        error_msg = str(img_error)
+                        if "loading" in error_msg.lower():
+                            yield f"data: {json.dumps({'error': f'⏳ {error_msg}'})}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'error': f'❌ Image generation failed: {error_msg}'})}\n\n"
+                        return
                 
                 # Build the prompt based on selected tool
                 tool_prompts = {

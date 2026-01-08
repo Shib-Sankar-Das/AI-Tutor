@@ -13,6 +13,9 @@ export interface Message {
     documentContent?: string;
     calendarEvent?: CalendarEventAction;
     helpful?: boolean;  // For feedback
+    generatedImage?: string;  // Base64 data URL for SD 3.5 generated images
+    imagePrompt?: string;  // Prompt used to generate the image
+    imageModel?: string;  // Model used to generate the image
   };
 }
 

@@ -27,6 +27,7 @@ export function ChatMessage({ message, onOpenWorkspace, sessionId }: ChatMessage
   const isUser = message.role === 'user';
   const hasSlides = message.metadata?.slideData;
   const hasImage = message.metadata?.imageUrl || message.content.includes('image.pollinations.ai');
+  const hasGeneratedImage = message.metadata?.generatedImage;
   const hasDocument = message.metadata?.documentContent;
   const hasCalendarEvent = message.metadata?.calendarEvent;
 
@@ -228,6 +229,32 @@ export function ChatMessage({ message, onOpenWorkspace, sessionId }: ChatMessage
               >
                 {message.content}
               </ReactMarkdown>
+              
+              {/* Display Generated Image from Stable Diffusion */}
+              {hasGeneratedImage && (
+                <div className="mt-4 space-y-2">
+                  <div className="relative group">
+                    <img
+                      src={message.metadata!.generatedImage}
+                      alt={message.metadata?.imagePrompt || 'AI Generated Image'}
+                      className="rounded-lg max-w-full h-auto shadow-lg border border-gray-200 dark:border-gray-600"
+                    />
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <a
+                        href={message.metadata!.generatedImage}
+                        download={`generated-image-${Date.now()}.jpg`}
+                        className="flex items-center gap-1 px-2 py-1 bg-black/50 text-white text-xs rounded-lg hover:bg-black/70 transition-colors"
+                      >
+                        <Download className="w-3 h-3" />
+                        Save
+                      </a>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    🎨 Generated with {message.metadata?.imageModel || 'Stable Diffusion 3.5 Large'}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

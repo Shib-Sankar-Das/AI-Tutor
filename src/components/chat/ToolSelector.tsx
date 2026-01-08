@@ -11,7 +11,7 @@ import {
   Wand2,
 } from 'lucide-react';
 
-export type ToolType = 'auto' | 'chat' | 'report' | 'presentation';
+export type ToolType = 'auto' | 'chat' | 'report' | 'presentation' | 'image';
 
 interface ToolSelectorProps {
   selectedTool: ToolType;
@@ -50,6 +50,14 @@ const tools = [
     icon: Presentation,
     color: 'text-orange-600 dark:text-orange-400',
     bgColor: 'bg-orange-100 dark:bg-orange-900/30',
+  },
+  {
+    id: 'image' as ToolType,
+    name: 'Image',
+    description: 'Generate images with Stable Diffusion 3.5',
+    icon: ImageIcon,
+    color: 'text-pink-600 dark:text-pink-400',
+    bgColor: 'bg-pink-100 dark:bg-pink-900/30',
   },
 ];
 

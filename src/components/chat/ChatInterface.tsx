@@ -188,6 +188,20 @@ export function ChatInterface({ sessionId, onOpenWorkspace }: ChatInterfaceProps
                 });
               }
               
+              // Handle generated image
+              if (data.generatedImage) {
+                const store = useAppStore.getState();
+                const imageData = data.generatedImage;
+                store.updateMessage(sessionId, assistantMessageId, {
+                  metadata: { 
+                    ...store.messages[sessionId]?.find(m => m.id === assistantMessageId)?.metadata, 
+                    generatedImage: `data:${imageData.mime_type};base64,${imageData.image_base64}`,
+                    imagePrompt: imageData.prompt,
+                    imageModel: imageData.model
+                  },
+                });
+              }
+              
               // Handle completion with tool info
               if (data.done && data.tool_used) {
                 const store = useAppStore.getState();

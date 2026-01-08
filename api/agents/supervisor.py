@@ -210,6 +210,16 @@ def auto_select_tool(message: str) -> str:
     """
     message_lower = message.lower()
     
+    # Image generation patterns
+    image_patterns = [
+        "generate image", "create image", "draw", "make an image",
+        "generate a picture", "create a picture", "illustrate",
+        "generate art", "create art", "make art", "artwork",
+        "image of", "picture of", "photo of", "painting of",
+        "visualize", "render", "design an image", "generate visual",
+        "stable diffusion", "ai image", "ai art"
+    ]
+    
     # Report patterns
     report_patterns = [
         "report", "document", "detailed analysis", "comprehensive",
@@ -224,6 +234,11 @@ def auto_select_tool(message: str) -> str:
         "create slides", "make a presentation", "design slides",
         "keynote", "pitch deck", "slideshow"
     ]
+    
+    # Check for image generation
+    for pattern in image_patterns:
+        if pattern in message_lower:
+            return "image"
     
     # Check for report
     for pattern in report_patterns:
