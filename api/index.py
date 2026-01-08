@@ -122,32 +122,30 @@ async def health_check():
     }
 
 
-# Main chat endpoint with streaming
+# Main chat endpoint - simplified direct approach for reliable single API call
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     """
-    Main chat endpoint that invokes the LangGraph agentic workflow.
-    Returns a streaming response (SSE) for real-time token delivery.
+    Main chat endpoint - uses direct LLM call to ensure exactly ONE API request.
+    This avoids potential issues with LangGraph streaming causing multiple calls.
     """
     try:
         # Check API key first
         if not os.getenv("GOOGLE_API_KEY"):
             raise HTTPException(status_code=500, detail="GOOGLE_API_KEY not configured")
         
-        # Lazy import modules
-        create_tutor_graph, load_memory_context, save_interaction_memory = get_tutor_modules()
-        
-        # Create the agentic graph
-        graph = create_tutor_graph()
+        # Lazy import
+        from agents.supervisor import get_llm, supervisor_node, tutor_node, rag_node, visual_node, presentation_node, feynman_node, advocate_node
+        from agents.supervisor import load_memory_context, save_interaction_memory, get_message_content
         
         user_id = request.user_id or "anonymous"
         session_id = request.session_id or request.thread_id
         
-        # Load memory context for this user
+        # Load memory context (no LLM calls, just database)
         memory_data = await load_memory_context(user_id, session_id, request.message)
         
-        # Initialize state with memory context
-        initial_state = {
+        # Build state
+        state = {
             "messages": [{"role": "user", "content": request.message}],
             "user_id": user_id,
             "session_id": session_id,
@@ -163,64 +161,68 @@ async def chat(request: ChatRequest):
             "extracted_facts": [],
         }
         
-        collected_response = ""
-        final_state = None
-        MemoryManager = get_memory_module()
-        
         async def event_generator():
-            """Generate SSE events from the graph execution"""
-            nonlocal collected_response, final_state
-            
+            """Generate SSE events with single LLM call"""
             try:
-                async for event in graph.astream_events(
-                    initial_state,
-                    config={"configurable": {"thread_id": request.thread_id}},
-                    version="v2"
-                ):
-                    event_type = event.get("event")
-                    
-                    # Stream tokens as they're generated
-                    if event_type == "on_chat_model_stream":
-                        chunk = event.get("data", {}).get("chunk")
-                        if chunk and hasattr(chunk, "content"):
-                            token = chunk.content
-                            if token:
-                                collected_response += token
-                                yield f"data: {json.dumps({'token': token})}\n\n"
-                    
-                    # Capture final state for memory storage
-                    elif event_type == "on_chain_end":
-                        output = event.get("data", {}).get("output", {})
-                        if isinstance(output, dict) and "messages" in output:
-                            final_state = output
-                    
-                    # Send tool usage events
-                    elif event_type == "on_tool_start":
-                        tool_name = event.get("name", "")
-                        yield f"data: {json.dumps({'tool': tool_name, 'status': 'started'})}\n\n"
-                    
-                    elif event_type == "on_tool_end":
-                        tool_name = event.get("name", "")
-                        output = event.get("data", {}).get("output", "")
-                        yield f"data: {json.dumps({'tool': tool_name, 'status': 'completed', 'output_preview': str(output)[:100]})}\n\n"
+                # Step 1: Route using pattern matching (NO LLM call)
+                state_after_routing = supervisor_node(state)
+                next_agent = state_after_routing.get("next_step", "tutor")
                 
-                # Save interaction to memory system
-                if collected_response and MemoryManager:
-                    extracted_facts = final_state.get("extracted_facts", []) if final_state else []
+                yield f"data: {json.dumps({'status': 'routing', 'agent': next_agent})}\n\n"
+                
+                # Step 2: Call the appropriate agent (ONE LLM call)
+                agent_map = {
+                    "tutor": tutor_node,
+                    "rag": rag_node,
+                    "visual": visual_node,
+                    "presentation": presentation_node,
+                    "feynman": feynman_node,
+                    "advocate": advocate_node,
+                }
+                
+                agent_func = agent_map.get(next_agent, tutor_node)
+                
+                yield f"data: {json.dumps({'status': 'generating'})}\n\n"
+                
+                # Execute agent (this makes exactly ONE LLM call)
+                final_state = agent_func(state_after_routing)
+                
+                # Get the response from the last message
+                response_content = ""
+                if final_state.get("messages"):
+                    last_msg = final_state["messages"][-1]
+                    response_content = get_message_content(last_msg)
+                
+                # Stream the complete response as tokens (simulated streaming)
+                # This provides a better UX even though the LLM call was blocking
+                words = response_content.split(' ')
+                for i, word in enumerate(words):
+                    token = word + (' ' if i < len(words) - 1 else '')
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+                
+                # Save to memory (no LLM call)
+                try:
+                    extracted_facts = final_state.get("extracted_facts", [])
                     await save_interaction_memory(
                         user_id=user_id,
                         session_id=session_id,
                         user_message=request.message,
-                        assistant_response=collected_response,
+                        assistant_response=response_content,
                         topic=memory_data.get("current_topic"),
                         extracted_facts=extracted_facts
                     )
+                except Exception as mem_error:
+                    print(f"Memory save error (non-critical): {mem_error}")
                 
-                # Signal completion
-                yield f"data: {json.dumps({'done': True})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'agent_used': next_agent})}\n\n"
                 
             except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                error_msg = str(e)
+                # Provide user-friendly error messages
+                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                    yield f"data: {json.dumps({'error': '⚠️ Rate limit reached. The AI service is temporarily unavailable. Please wait 30-60 seconds and try again.'})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'error': error_msg})}\n\n"
         
         return StreamingResponse(
             event_generator(),

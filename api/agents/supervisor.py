@@ -68,15 +68,17 @@ class AgentState(TypedDict):
     extracted_facts: List[Dict[str, str]]  # Facts to store after interaction
 
 
-# Initialize Gemini LLM with fallback for rate limits
+# Initialize Gemini LLM
 def get_llm(model: str = None):
     """
     Get the Gemini model instance.
-    Uses gemini-2.0-flash by default for better rate limits on free tier.
-    gemini-2.5-pro has very strict limits (2 RPM, 1000 tokens/min).
-    gemini-2.0-flash has higher limits on free tier.
+    Default: gemini-2.5-pro (configurable via GEMINI_MODEL env var)
+    
+    Rate limits for free tier:
+    - gemini-2.5-pro: 2 RPM, 50 RPD (requests per day)
+    - gemini-2.0-flash: 15 RPM, 1500 RPD
     """
-    model_name = model or os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    model_name = model or os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
     return ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=os.getenv("GOOGLE_API_KEY"),
