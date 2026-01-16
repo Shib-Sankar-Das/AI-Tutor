@@ -250,7 +250,7 @@ async def generate_image_sd35(prompt: str, negative_prompt: str = None, width: i
         raise ValueError("HUGGINGFACE_API_KEY not configured")
     
     # Hugging Face Inference API endpoint for SD 3.5 Large
-    api_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-3.5-large"
+    api_url = "https://router.huggingface.co/models/stabilityai/stable-diffusion-3.5-large"
     
     headers = {
         "Authorization": f"Bearer {hf_token}",
